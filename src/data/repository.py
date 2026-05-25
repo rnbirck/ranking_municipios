@@ -8,6 +8,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from supabase import create_client
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 QUERIES_DIR = BASE_DIR / "queries"
@@ -20,6 +21,7 @@ DEFAULT_CACHE_TTL_SECONDS = 900
 DEFAULT_DB_HOST = "localhost"
 DEFAULT_DB_PORT = "5432"
 DEFAULT_DB_NAME = "cei"
+SUPABASE_PAGE_SIZE = 1000
 EXPECTED_TABLE_SCHEMA = "public"
 EXPECTED_TABLE_NAME = "ranking_municipios"
 RANKING_QUERY_FILE = QUERIES_DIR / "ranking_municipios.sql"
@@ -141,6 +143,37 @@ def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
     return pd.read_sql_query(text(query), get_local_postgres_engine(), params=params)
 
 
+def _load_ranking_data_from_supabase_api() -> pd.DataFrame:
+    load_environment()
+    supabase_url = require_env("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or require_env("SUPABASE_KEY")
+    client = create_client(supabase_url, supabase_key)
+
+    rows = []
+    start = 0
+    while True:
+        end = start + SUPABASE_PAGE_SIZE - 1
+        response = (
+            client.table(EXPECTED_TABLE_NAME)
+            .select("*")
+            .range(start, end)
+            .execute()
+        )
+        batch = response.data or []
+        rows.extend(batch)
+        if len(batch) < SUPABASE_PAGE_SIZE:
+            break
+        start += SUPABASE_PAGE_SIZE
+
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    return frame.sort_values(
+        ["ano", "regiao_funcional", "ranking_regiao_funcional", "municipio"],
+        ascending=[False, True, True, True],
+    )
+
+
 def _region_sort_key(value: str) -> tuple[int, str]:
     match = re.search(r"(\d+)", value or "")
     if match:
@@ -173,6 +206,21 @@ def _normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def _load_ranking_data_uncached() -> pd.DataFrame:
     if not RANKING_QUERY_FILE.exists():
         raise FileNotFoundError(f"Query nao encontrada: {RANKING_QUERY_FILE}")
+    load_environment()
+    has_direct_database = bool(
+        os.getenv("DATABASE_URL")
+        or os.getenv("SUPABASE_DB_URL")
+        or os.getenv("SUPABASE_DATABASE_URL")
+        or os.getenv("DB_USUARIO")
+    )
+    has_supabase_api = bool(
+        os.getenv("SUPABASE_URL")
+        and (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY"))
+    )
+    if not has_direct_database and has_supabase_api:
+        frame = _load_ranking_data_from_supabase_api()
+        return _normalize_frame(frame)
+
     query = RANKING_QUERY_FILE.read_text(encoding="utf-8")
     frame = _read_sql(query)
     return _normalize_frame(frame)
