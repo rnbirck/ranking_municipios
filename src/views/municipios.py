@@ -35,6 +35,9 @@ CATEGORY_ICONS = {
     "seguranca": "shield-check",
     "socioeconomico": "people",
 }
+CLASSIFICACAO_TOOLTIP = (
+    "A coluna Desempenho classifica o município considerando seu tamanho populacional."
+)
 MUNICIPIO_PRIMARY = "#b7791f"
 MUNICIPIO_PRIMARY_FILL = "rgba(183, 121, 31, 0.12)"
 MUNICIPIO_ACCENT = "#8a5a12"
@@ -66,6 +69,31 @@ def _pos_num(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _dimension_rank_class(position, total) -> str:
+    pos = _pos_num(position)
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        total = None
+
+    base = "dimension-rank-pill"
+
+    if pos is None or not total or total < 1:
+        return f"{base} is-neutral"
+    if total == 1:
+        return f"{base} is-top"
+
+    percentile = pos / total
+
+    if percentile <= 0.25:
+        return f"{base} is-top"
+    if percentile <= 0.5:
+        return f"{base} is-good"
+    if percentile <= 0.75:
+        return f"{base} is-mid"
+    return f"{base} is-low"
 
 
 def _fmt_text(value) -> str:
@@ -695,7 +723,11 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
         html.Th("Geral"),
         html.Th("Munic\u00edpio"),
         html.Th("Corede"),
-        html.Th("Desempenho"),
+        html.Th(
+            [html.Span("Desempenho"), html.Span("ⓘ", className="header-info-icon")],
+            title=CLASSIFICACAO_TOOLTIP,
+            className="has-header-tooltip",
+        ),
         *[html.Th(CATEGORY_LABELS[category]) for category in CATEGORY_ORDER],
     ]
     rows = [
@@ -712,9 +744,20 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
                 html.Td(_classification_badge(row.get("classificacao"), "compact")),
                 *[
                     html.Td(
-                        _fmt_pos(
-                            category_positions.get(category, {}).get(row["municipio"])
-                        )
+                        html.Span(
+                            _fmt_pos(
+                                category_positions.get(category, {}).get(
+                                    row["municipio"]
+                                )
+                            ),
+                            className=_dimension_rank_class(
+                                category_positions.get(category, {}).get(
+                                    row["municipio"]
+                                ),
+                                len(frame),
+                            ),
+                        ),
+                        className="dimension-rank-cell",
                     )
                     for category in CATEGORY_ORDER
                 ],
@@ -1287,8 +1330,7 @@ def _indicator_value_history_figure(
                 connectgaps=True,
                 showlegend=True,
                 hovertemplate=(
-                    "<b>%{x}</b><br>"
-                    "Média regional: %{customdata}<extra></extra>"
+                    "<b>%{x}</b><br>Média regional: %{customdata}<extra></extra>"
                 ),
             )
         )
@@ -1364,7 +1406,7 @@ layout = html.Div(
         html.Section(id="municipio-info-region-list"),
         html.Div(
             html.Button(
-                [_icon("arrow-left", 16), html.Span("Voltar para sele\u00e7\u00e3o")],
+                [_icon("arrow-left", 16), html.Span("Voltar")],
                 id="municipio-info-back-button",
                 className="municipio-info-back-button",
                 n_clicks=0,

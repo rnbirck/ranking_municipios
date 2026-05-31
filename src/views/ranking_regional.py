@@ -1066,22 +1066,7 @@ layout = html.Div(
                         html.Div(
                             [
                                 _icon("table", 18),
-                                html.Div(
-                                    [
-                                        html.Div(
-                                            id="ranking-title", className="panel-title"
-                                        ),
-                                        html.Span(
-                                            "ⓘ",
-                                            title="A coluna Desempenho classifica o município considerando seu tamanho populacional.",
-                                            className="ranking-info-tooltip",
-                                        ),
-                                    ],
-                                    style={
-                                        "display": "inline-flex",
-                                        "alignItems": "center",
-                                    },
-                                ),
+                                html.Div(id="ranking-title", className="panel-title"),
                             ],
                             className="panel-heading ranking-heading",
                         ),
@@ -1101,6 +1086,15 @@ layout = html.Div(
                                         {"name": "Var. ant.", "id": "delta_nota"},
                                         {"name": "Δ pos.", "id": "delta_posicao"},
                                     ],
+                                    tooltip_header={
+                                        "classificacao": (
+                                            "A coluna Desempenho classifica o "
+                                            "município considerando seu tamanho "
+                                            "populacional."
+                                        ),
+                                    },
+                                    tooltip_delay=300,
+                                    tooltip_duration=None,
                                     data=[],
                                     active_cell=None,
                                     selected_cells=[],
@@ -1214,20 +1208,32 @@ layout = html.Div(
                                     [_icon("bars", 18), html.Span(id="history-title")],
                                     className="chart-title",
                                 ),
-                                dcc.RadioItems(
-                                    id="history-mode-selector",
-                                    options=[
-                                        {"label": "Nota final", "value": "nota"},
-                                        {
-                                            "label": "Posição no ranking",
-                                            "value": "posicao",
-                                        },
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Visualização",
+                                            className="history-mode-label",
+                                        ),
+                                        dcc.RadioItems(
+                                            id="history-mode-selector",
+                                            options=[
+                                                {
+                                                    "label": "Posição",
+                                                    "value": "posicao",
+                                                },
+                                                {
+                                                    "label": "Nota final",
+                                                    "value": "nota",
+                                                },
+                                            ],
+                                            value="posicao",
+                                            inline=True,
+                                            className="history-mode-selector",
+                                            inputClassName="history-mode-input",
+                                            labelClassName="history-mode-option",
+                                        ),
                                     ],
-                                    value="nota",
-                                    inline=True,
-                                    className="history-mode-selector",
-                                    inputClassName="history-mode-input",
-                                    labelClassName="history-mode-option",
+                                    className="history-mode-control",
                                 ),
                             ],
                             className="chart-title-row",
@@ -1308,20 +1314,16 @@ layout = html.Div(
             className="lower-grid",
             style={"display": "none"},
         ),
-        html.Section(
-            [
-                html.Div(
-                    html.Button(
-                        [_icon("map", 16), html.Span("Voltar para sele\u00e7\u00e3o")],
-                        id="regional-back-button",
-                        className="regional-back-button",
-                        n_clicks=0,
-                    ),
-                    className="regional-back-actions",
-                ),
-            ],
+        html.Div(
+            html.Button(
+                [_icon("arrow-left", 16), html.Span("Voltar")],
+                id="regional-back-button",
+                className="regional-back-button",
+                n_clicks=0,
+            ),
             id="regional-back-actions",
             className="regional-back-actions",
+            style={"display": "none"},
         ),
         html.Section(
             [
@@ -1626,6 +1628,12 @@ def update_region_page(year, region, corede, municipio, history_mode):
         },
     ] + _classification_datatable_styles()
 
+    history_title = (
+        "Evolução da posição no ranking"
+        if history_mode == "posicao"
+        else "Evolução da nota final"
+    )
+
     return (
         regional_scope_title,
         str(total),
@@ -1682,9 +1690,7 @@ def update_region_page(year, region, corede, municipio, history_mode):
             className="indicator-summary-panel",
         ),
         {},
-        "Evolução da nota final"
-        if history_mode == "nota"
-        else "Evolução da posição no ranking",
+        history_title,
         "Desempenho por indicador",
     )
 
