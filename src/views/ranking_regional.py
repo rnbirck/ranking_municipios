@@ -1,4 +1,7 @@
 ﻿import re
+from urllib.parse import urlencode
+
+import unicodedata
 
 import dash
 import pandas as pd
@@ -40,12 +43,72 @@ def _fmt_pos_delta(value) -> str:
     return f"+{value}" if value > 0 else str(value)
 
 
+def _classification_status(value) -> str:
+    text = "" if value is None or pd.isna(value) else str(value).strip()
+    normalized = (
+        unicodedata.normalize("NFKD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    if "acima" in normalized:
+        return "above"
+    if "baixo" in normalized or "abaixo" in normalized:
+        return "low"
+    if "intervalo" in normalized or "dentro" in normalized or "esperado" in normalized:
+        return "range"
+    return "neutral" if text else "missing"
+
+
+def _classification_label(value) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    text = str(value).strip()
+    return text if text else "-"
+
+
+def _classification_datatable_styles() -> list[dict]:
+    return [
+        {
+            "if": {"column_id": "classificacao"},
+            "fontWeight": "800",
+            "borderRadius": "6px",
+        },
+        {
+            "if": {
+                "filter_query": '{classificacao_status} = "above"',
+                "column_id": "classificacao",
+            },
+            "backgroundColor": "#e7f6ef",
+            "color": "#06724f",
+        },
+        {
+            "if": {
+                "filter_query": '{classificacao_status} = "range"',
+                "column_id": "classificacao",
+            },
+            "backgroundColor": "#fff3cf",
+            "color": "#8a5a12",
+        },
+        {
+            "if": {
+                "filter_query": '{classificacao_status} = "low"',
+                "column_id": "classificacao",
+            },
+            "backgroundColor": "#fde8e8",
+            "color": "#b4232d",
+        },
+    ]
+
+
 def _hover_layout(height=None, margin=None, **kwargs):
     layout = dict(
         hoverlabel=dict(
             bgcolor="#ffffff",
             bordercolor="#dfe6ec",
-            font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12, color="#102542"),
+            font=dict(
+                family="Inter, Segoe UI, Arial, sans-serif", size=12, color="#102542"
+            ),
             align="left",
         ),
         **kwargs,
@@ -162,6 +225,7 @@ def _build_region_summary_data(year):
             {
                 "regiao": region,
                 "municipios": int(group["municipio"].nunique()),
+                "coredes_count": len(coredes),
                 "coredes": ", ".join(coredes),
                 "nota_final": _fmt_num(group["nota_final"].mean()),
             }
@@ -174,38 +238,66 @@ def _build_region_summary_table(rows):
         return html.Div(
             "Não há dados regionais para o ano selecionado.", className="empty-state"
         )
-    return html.Table(
+    return html.Div(
         [
-            html.Thead(
-                html.Tr(
-                    [
-                        html.Th("Região funcional"),
-                        html.Th("Municípios"),
-                        html.Th("Coredes"),
-                        html.Th("Nota final média"),
-                    ]
-                )
-            ),
-            html.Tbody(
+            html.Div(
                 [
-                    html.Tr(
+                    html.Div(
+                        html.Span(row["regiao"], className="region-explore-badge"),
+                        className="region-explore-col region-explore-col--badge",
+                    ),
+                    html.Div(
                         [
-                            html.Td(html.Span(row["regiao"], className="region-chip")),
-                            html.Td(str(row["municipios"])),
-                            html.Td(row["coredes"]),
-                            html.Td(
-                                html.Span(row["nota_final"], className="score-pill")
+                            html.Div(
+                                str(row["municipios"]),
+                                className="region-explore-metric-value",
+                            ),
+                            html.Div(
+                                "municípios",
+                                className="region-explore-metric-label",
                             ),
                         ],
-                        id={"type": "region-summary-row", "region": row["regiao"]},
-                        n_clicks=0,
-                        title=f"Selecionar {row['regiao']}",
-                    )
-                    for row in rows
-                ]
-            ),
+                        className="region-explore-col region-explore-col--metric",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                str(row["coredes_count"]),
+                                className="region-explore-metric-value",
+                            ),
+                            html.Div(
+                                "Coredes",
+                                className="region-explore-metric-label",
+                            ),
+                        ],
+                        className="region-explore-col region-explore-col--metric",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                "Coredes",
+                                className="region-explore-coredes-label",
+                            ),
+                            html.Div(
+                                row["coredes"],
+                                className="region-explore-coredes-text",
+                            ),
+                        ],
+                        className="region-explore-col region-explore-col--coredes",
+                    ),
+                    html.Div(
+                        html.Span("Explorar região", className="region-explore-cta"),
+                        className="region-explore-col region-explore-col--cta",
+                    ),
+                ],
+                className="region-explore-card",
+                id={"type": "regional-overview-card", "region": row["regiao"]},
+                n_clicks=0,
+                title=f"Selecionar {row['regiao']}",
+            )
+            for row in rows
         ],
-        className="region-summary-table",
+        className="region-explore-list",
     )
 
 
@@ -250,6 +342,10 @@ def _build_ranking_data(scope: pd.DataFrame, previous: pd.DataFrame):
                 "posicao": int(row["ranking_regiao_funcional"]),
                 "municipio": row["municipio"],
                 "corede": row["corede"],
+                "classificacao": _classification_label(row.get("classificacao")),
+                "classificacao_status": _classification_status(
+                    row.get("classificacao")
+                ),
                 "nota_final": _fmt_num(row["nota_final"]),
                 "delta_nota": _fmt_delta(delta_score),
                 "delta_posicao": _fmt_pos_delta(delta_rank),
@@ -259,7 +355,9 @@ def _build_ranking_data(scope: pd.DataFrame, previous: pd.DataFrame):
 
 
 def _selected_name_with_corede(name: str, corede: str | None):
-    clean_corede = str(corede).strip() if corede is not None and not pd.isna(corede) else ""
+    clean_corede = (
+        str(corede).strip() if corede is not None and not pd.isna(corede) else ""
+    )
     if not clean_corede:
         return name
     return [
@@ -392,7 +490,9 @@ def _radar_figure(scope: pd.DataFrame, row) -> go.Figure:
         go.Scatterpolar(
             r=municipio_values + [municipio_values[0]],
             theta=labels_closed,
-            customdata=[_fmt_num(value) for value in municipio_values + [municipio_values[0]]],
+            customdata=[
+                _fmt_num(value) for value in municipio_values + [municipio_values[0]]
+            ],
             mode="lines+markers",
             name=str(row["municipio"]),
             line=dict(color="#007873", width=3),
@@ -414,30 +514,34 @@ def _radar_figure(scope: pd.DataFrame, row) -> go.Figure:
             hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
         )
     )
-    figure.update_layout(**_hover_layout(
-        height=344,
-        margin=dict(l=10, r=10, t=2, b=2),
-        paper_bgcolor="rgba(0,0,0,0)",
-        polar=dict(
-            bgcolor="rgba(0,0,0,0)",
-            domain=dict(x=[0.02, 0.98], y=[0.02, 0.92]),
-            radialaxis=dict(
-                range=[0, 10],
-                tickvals=[0, 2.5, 5, 7.5, 10],
-                tickfont=dict(size=10, color="#708095"),
-                gridcolor="#dfe7ed",
+    figure.update_layout(
+        **_hover_layout(
+            height=344,
+            margin=dict(l=10, r=10, t=2, b=2),
+            paper_bgcolor="rgba(0,0,0,0)",
+            polar=dict(
+                bgcolor="rgba(0,0,0,0)",
+                domain=dict(x=[0.02, 0.98], y=[0.02, 0.92]),
+                radialaxis=dict(
+                    range=[0, 10],
+                    tickvals=[0, 2.5, 5, 7.5, 10],
+                    tickfont=dict(size=10, color="#708095"),
+                    gridcolor="#dfe7ed",
+                ),
+                angularaxis=dict(
+                    tickfont=dict(size=11, color="#102542"), gridcolor="#dfe7ed"
+                ),
             ),
-            angularaxis=dict(tickfont=dict(size=11, color="#102542"), gridcolor="#dfe7ed"),
-        ),
-        legend=dict(
-            orientation="h",
-            y=1.02,
-            x=0.5,
-            xanchor="center",
-            font=dict(size=12, color="#102542"),
-        ),
-        showlegend=True,
-    ))
+            legend=dict(
+                orientation="h",
+                y=1.02,
+                x=0.5,
+                xanchor="center",
+                font=dict(size=12, color="#102542"),
+            ),
+            showlegend=True,
+        )
+    )
     return figure
 
 
@@ -458,7 +562,7 @@ def _selected_detail_content(
 
 
 def _municipality_history_figure(
-    region: str | None, corede: str | None, municipio: str | None
+    region: str | None, corede: str | None, municipio: str | None, mode: str = "nota"
 ) -> go.Figure:
     history = load_ranking_data()
     if region:
@@ -468,12 +572,66 @@ def _municipality_history_figure(
     if history.empty or not municipio:
         return _empty_figure("Sem série histórica para o município.")
 
-    regional = history.groupby("ano", as_index=False).agg(media=("nota_final", "mean"))
     selected = history[history["municipio"] == municipio].sort_values("ano")
     if selected.empty:
         return _empty_figure("Sem série histórica para o município.")
 
-    y_values = pd.concat([selected["nota_final"], regional["media"]]).dropna()
+    if mode == "posicao":
+        y_column = "ranking_regiao_funcional"
+        y_values = selected[y_column].dropna()
+        y_min = float(y_values.min())
+        y_max = float(y_values.max())
+
+        figure = go.Figure()
+        figure.add_trace(
+            go.Scatter(
+                x=selected["ano"],
+                y=selected[y_column],
+                mode="lines+markers+text",
+                name=municipio,
+                text=[f"{int(value)}º" for value in selected[y_column]],
+                customdata=[f"{int(value)}º" for value in selected[y_column]],
+                textposition="top center",
+                textfont=dict(size=12),
+                cliponaxis=False,
+                line=dict(color="#007873", width=3),
+                marker=dict(size=7, color="#007873"),
+                hovertemplate="<b>%{fullData.name}</b><br>Ano %{x}<br>Posição: %{customdata}<extra></extra>",
+            )
+        )
+        figure.update_layout(
+            **_hover_layout(
+                height=280,
+                margin=dict(l=24, r=24, t=34, b=34),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(
+                    tickmode="linear",
+                    showgrid=False,
+                    color="#102542",
+                    tickfont=dict(size=11),
+                ),
+                yaxis=dict(
+                    autorange="reversed",
+                    range=[y_max + 4, max(1, y_min - 4)],
+                    title=None,
+                    showticklabels=False,
+                    ticks="",
+                    showline=False,
+                    zeroline=False,
+                    showgrid=True,
+                    gridcolor="#e5ebef",
+                    fixedrange=True,
+                ),
+                showlegend=False,
+            )
+        )
+        return figure
+
+    y_column = "nota_final"
+    y_label = "Nota"
+    regional = history.groupby("ano", as_index=False).agg(media=("nota_final", "mean"))
+    y_values = pd.concat([selected[y_column], regional["media"]]).dropna()
     if y_values.empty:
         y_range = [0, 10]
     else:
@@ -487,15 +645,15 @@ def _municipality_history_figure(
     figure.add_trace(
         go.Scatter(
             x=selected["ano"],
-            y=selected["nota_final"],
+            y=selected[y_column],
             mode="lines+markers+text",
             name=municipio,
-            text=[_fmt_num(value) for value in selected["nota_final"]],
-            customdata=[_fmt_num(value) for value in selected["nota_final"]],
+            text=[_fmt_num(value) for value in selected[y_column]],
+            customdata=[_fmt_num(value) for value in selected[y_column]],
             textposition="top center",
             line=dict(color="#007873", width=3),
             marker=dict(size=7, color="#007873"),
-            hovertemplate="<b>%{fullData.name}</b><br>Ano %{x}<br>Nota: %{customdata}<extra></extra>",
+            hovertemplate=f"<b>%{{fullData.name}}</b><br>Ano %{{x}}<br>{y_label}: %{{customdata}}<extra></extra>",
         )
     )
     figure.add_trace(
@@ -509,124 +667,38 @@ def _municipality_history_figure(
             textposition="bottom center",
             line=dict(color="#7b8797", width=2, dash="dash"),
             marker=dict(size=6, color="#7b8797"),
-            hovertemplate="<b>%{fullData.name}</b><br>Ano %{x}<br>Média: %{customdata}<extra></extra>",
+            hovertemplate=f"<b>%{{fullData.name}}</b><br>Ano %{{x}}<br>Média: %{{customdata}}<extra></extra>",
         )
     )
-    figure.update_layout(**_hover_layout(
-        height=250,
-        margin=dict(l=18, r=24, t=34, b=34),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(tickmode="linear", showgrid=False, color="#102542"),
-        yaxis=dict(
-            range=y_range,
-            title=None,
-            showticklabels=False,
-            ticks="",
-            showline=False,
-            zeroline=False,
-            showgrid=True,
-            gridcolor="#e5ebef",
-            fixedrange=True,
-        ),
-        legend=dict(
-            orientation="h",
-            y=1.12,
-            x=0.5,
-            xanchor="center",
-            font=dict(size=12, color="#102542"),
-        ),
-        showlegend=True,
-    ))
+    figure.update_layout(
+        **_hover_layout(
+            height=280,
+            margin=dict(l=18, r=24, t=34, b=34),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(tickmode="linear", showgrid=False, color="#102542"),
+            yaxis=dict(
+                range=y_range,
+                title=None,
+                showticklabels=False,
+                ticks="",
+                showline=False,
+                zeroline=False,
+                showgrid=True,
+                gridcolor="#e5ebef",
+                fixedrange=True,
+            ),
+            legend=dict(
+                orientation="h",
+                y=1.12,
+                x=0.5,
+                xanchor="center",
+                font=dict(size=12, color="#102542"),
+            ),
+            showlegend=True,
+        )
+    )
     return figure
-
-
-def _municipality_history_table(
-    region: str | None, corede: str | None, municipio: str | None
-):
-    history = load_ranking_data()
-    if region:
-        history = history[history["regiao_funcional"] == region]
-    if corede:
-        history = history[history["corede"] == corede]
-    if history.empty or not municipio:
-        return html.Div()
-
-    selected = history[history["municipio"] == municipio].sort_values("ano")
-    if selected.empty:
-        return html.Div()
-
-    items = []
-    previous_score = None
-    for _, row in selected.iterrows():
-        score = row["nota_final"]
-        delta = (
-            float(score - previous_score)
-            if previous_score is not None and not pd.isna(previous_score)
-            else None
-        )
-        items.append(
-            html.Div(
-                [
-                    html.Div(str(int(row["ano"])), className="history-year"),
-                    html.Div(_fmt_num(score), className="history-score"),
-                    html.Div(_fmt_delta(delta), className="history-delta"),
-                ],
-                className="history-year-card",
-            )
-        )
-        previous_score = score
-
-    return html.Div(
-        [
-            html.Div("Histórico do município", className="history-strip-title"),
-            html.Div(items, className="history-year-list"),
-        ],
-        className="municipality-history-strip",
-    )
-
-
-def _quick_read(scope: pd.DataFrame, row) -> html.Div:
-    if row is None or scope.empty:
-        return html.Div()
-
-    ranks = {column: int(_rank_series(scope, column).loc[row.name]) for column in SECTOR_COLUMNS}
-    ordered = sorted(ranks.items(), key=lambda item: item[1])
-    best_text = ", ".join(f"{SECTOR_LABELS[column]} ({position}º)" for column, position in ordered[:2])
-    weakest_column, weakest_position = ordered[-1]
-
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Div(_icon("trophy", 26), className="quick-icon success"),
-                    html.Div(
-                        [
-                            html.Div("Melhores posições:", className="quick-title"),
-                            html.Div(f"{best_text}.", className="quick-text"),
-                        ]
-                    ),
-                ],
-                className="quick-item",
-            ),
-            html.Div(
-                [
-                    html.Div(_icon("info", 26), className="quick-icon warning"),
-                    html.Div(
-                        [
-                            html.Div("Maior fragilidade relativa:", className="quick-title"),
-                            html.Div(
-                                f"{SECTOR_LABELS[weakest_column]} ({weakest_position}º).",
-                                className="quick-text",
-                            ),
-                        ]
-                    ),
-                ],
-                className="quick-item",
-            ),
-        ],
-        className="quick-read",
-    )
 
 
 def _municipality_selection_prompt(region_code: str, total: int):
@@ -704,19 +776,21 @@ def _history_figure(region: str | None, corede: str | None):
             hovertemplate="<b>Média regional</b><br>Ano %{x}<br>Média: %{customdata}<extra></extra>",
         )
     )
-    figure.update_layout(**_hover_layout(
-        height=178,
-        margin=dict(l=30, r=12, t=18, b=26),
-        yaxis=dict(
-            range=[
-                max(0, summary["media"].min() - 1),
-                min(10, summary["media"].max() + 1),
-            ],
-            gridcolor="#e5ebef",
-        ),
-        xaxis=dict(tickmode="linear"),
-        showlegend=False,
-    ))
+    figure.update_layout(
+        **_hover_layout(
+            height=220,
+            margin=dict(l=30, r=12, t=18, b=26),
+            yaxis=dict(
+                range=[
+                    max(0, summary["media"].min() - 1),
+                    min(10, summary["media"].max() + 1),
+                ],
+                gridcolor="#e5ebef",
+            ),
+            xaxis=dict(tickmode="linear"),
+            showlegend=False,
+        )
+    )
     return figure
 
 
@@ -738,33 +812,35 @@ def _indicator_bar(scope: pd.DataFrame):
             hovertemplate="<b>%{y}</b><br>Média: %{customdata}<extra></extra>",
         )
     )
-    figure.update_layout(**_hover_layout(
-        height=152,
-        margin=dict(l=172, r=58, t=2, b=4),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        bargap=0.36,
-        xaxis=dict(
-            range=[0, 10],
-            title=None,
-            showgrid=False,
-            zeroline=False,
-            showline=False,
-            ticks="",
-            showticklabels=False,
-            tickfont=dict(size=10, color="#526277"),
-        ),
-        yaxis=dict(
-            title=None,
-            autorange="reversed",
-            tickfont=dict(size=11, color="#102542"),
-            ticks="",
-            ticklabelstandoff=10,
-            automargin=True,
-        ),
-        uniformtext=dict(minsize=10, mode="show"),
-        showlegend=False,
-    ))
+    figure.update_layout(
+        **_hover_layout(
+            height=220,
+            margin=dict(l=172, r=58, t=2, b=4),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            bargap=0.36,
+            xaxis=dict(
+                range=[0, 10],
+                title=None,
+                showgrid=False,
+                zeroline=False,
+                showline=False,
+                ticks="",
+                showticklabels=False,
+                tickfont=dict(size=10, color="#526277"),
+            ),
+            yaxis=dict(
+                title=None,
+                autorange="reversed",
+                tickfont=dict(size=11, color="#102542"),
+                ticks="",
+                ticklabelstandoff=10,
+                automargin=True,
+            ),
+            uniformtext=dict(minsize=10, mode="show"),
+            showlegend=False,
+        )
+    )
     return figure
 
 
@@ -903,7 +979,7 @@ layout = html.Div(
                                     _icon("table", 22), className="summary-title-icon"
                                 ),
                                 html.Div(
-                                    "Resumo das regiões no último ano disponível",
+                                    "Explore as regiões funcionais",
                                     className="summary-title",
                                 ),
                             ],
@@ -916,10 +992,10 @@ layout = html.Div(
                                     _icon("info", 18), className="summary-note-icon"
                                 ),
                                 html.Div(
-                                    "Selecione uma linha ou use o filtro para explorar os detalhes da região."
+                                    "Selecione uma região para explorar o ranking dos municípios e os detalhes regionais."
                                 ),
                             ],
-                            className="summary-note",
+                            className="summary-note region-explore-note",
                         ),
                     ],
                     className="region-summary-card",
@@ -967,15 +1043,21 @@ layout = html.Div(
                                 ),
                                 html.Div(id="selected-name", className="selected-name"),
                                 html.Div(id="selected-meta", className="selected-meta"),
+                                html.Div(
+                                    id="selected-municipio-actions",
+                                    className="selected-municipio-actions",
+                                ),
                             ]
                         ),
                     ],
                     id="selected-municipio-card",
                     className="selected-municipio",
+                    style={"display": "none"},
                 ),
             ],
             id="regional-hero",
-            className="regional-hero",
+            className="regional-hero no-selected",
+            style={"display": "none"},
         ),
         html.Section(
             [
@@ -984,27 +1066,104 @@ layout = html.Div(
                         html.Div(
                             [
                                 _icon("table", 18),
-                                html.Div(id="ranking-title", className="panel-title"),
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            id="ranking-title", className="panel-title"
+                                        ),
+                                        html.Span(
+                                            "ⓘ",
+                                            title="A coluna Desempenho classifica o município considerando seu tamanho populacional.",
+                                            className="ranking-info-tooltip",
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "inline-flex",
+                                        "alignItems": "center",
+                                    },
+                                ),
                             ],
                             className="panel-heading ranking-heading",
                         ),
-                        dash_table.DataTable(
-                            id="ranking-table",
-                            columns=[
-                                {"name": "Posição", "id": "posicao"},
-                                {"name": "Município", "id": "municipio"},
-                                {"name": "Corede", "id": "corede"},
-                                {"name": "Nota final", "id": "nota_final"},
-                                {"name": "Var. ant.", "id": "delta_nota"},
-                                {"name": "Δ posição", "id": "delta_posicao"},
+                        dcc.Loading(
+                            id="ranking-table-loading",
+                            type="circle",
+                            color="#007873",
+                            children=[
+                                dash_table.DataTable(
+                                    id="ranking-table",
+                                    columns=[
+                                        {"name": "Posição", "id": "posicao"},
+                                        {"name": "Município", "id": "municipio"},
+                                        {"name": "Corede", "id": "corede"},
+                                        {"name": "Desempenho", "id": "classificacao"},
+                                        {"name": "Nota", "id": "nota_final"},
+                                        {"name": "Var. ant.", "id": "delta_nota"},
+                                        {"name": "Δ pos.", "id": "delta_posicao"},
+                                    ],
+                                    data=[],
+                                    active_cell=None,
+                                    selected_cells=[],
+                                    page_action="none",
+                                    sort_action="none",
+                                    style_table={
+                                        "overflowX": "hidden",
+                                        "overflowY": "auto",
+                                        "maxHeight": "338px",
+                                    },
+                                    style_cell={
+                                        "textAlign": "center",
+                                        "padding": "7px 8px",
+                                        "fontSize": "0.84rem",
+                                        "whiteSpace": "normal",
+                                        "height": "auto",
+                                    },
+                                    style_cell_conditional=[
+                                        {
+                                            "if": {"column_id": "posicao"},
+                                            "width": "76px",
+                                            "minWidth": "76px",
+                                            "maxWidth": "76px",
+                                        },
+                                        {
+                                            "if": {"column_id": "municipio"},
+                                            "width": "210px",
+                                            "minWidth": "190px",
+                                            "maxWidth": "240px",
+                                        },
+                                        {
+                                            "if": {"column_id": "corede"},
+                                            "width": "250px",
+                                            "minWidth": "220px",
+                                            "maxWidth": "280px",
+                                        },
+                                        {
+                                            "if": {"column_id": "classificacao"},
+                                            "width": "150px",
+                                            "minWidth": "130px",
+                                            "maxWidth": "180px",
+                                        },
+                                        {
+                                            "if": {"column_id": "nota_final"},
+                                            "width": "90px",
+                                            "minWidth": "80px",
+                                            "maxWidth": "100px",
+                                        },
+                                        {
+                                            "if": {"column_id": "delta_nota"},
+                                            "width": "90px",
+                                            "minWidth": "80px",
+                                            "maxWidth": "100px",
+                                        },
+                                        {
+                                            "if": {"column_id": "delta_posicao"},
+                                            "width": "100px",
+                                            "minWidth": "90px",
+                                            "maxWidth": "110px",
+                                        },
+                                    ],
+                                ),
                             ],
-                            data=[],
-                            active_cell=None,
-                            selected_cells=[],
-                            page_action="none",
-                            sort_action="native",
-                            style_table={"overflowX": "auto", "overflowY": "auto", "maxHeight": "338px"},
-                            style_cell={"textAlign": "center"},
                         ),
                     ],
                     className="ranking-card",
@@ -1029,29 +1188,62 @@ layout = html.Div(
                             ],
                             className="panel-heading detail-heading",
                         ),
-                        html.Div(id="indicator-detail-table"),
+                        dcc.Loading(
+                            id="detail-loading",
+                            type="circle",
+                            color="#007873",
+                            children=[html.Div(id="indicator-detail-table")],
+                        ),
                     ],
                     id="municipality-detail-card",
                     className="detail-card",
+                    style={"display": "none"},
                 ),
             ],
             id="dashboard-grid",
-            className="dashboard-grid",
+            className="dashboard-grid only-ranking",
+            style={"display": "none"},
         ),
         html.Section(
             [
                 html.Div(
                     [
                         html.Div(
-                            [_icon("bars", 18), html.Span(id="history-title")],
-                            className="chart-title",
+                            [
+                                html.Div(
+                                    [_icon("bars", 18), html.Span(id="history-title")],
+                                    className="chart-title",
+                                ),
+                                dcc.RadioItems(
+                                    id="history-mode-selector",
+                                    options=[
+                                        {"label": "Nota final", "value": "nota"},
+                                        {
+                                            "label": "Posição no ranking",
+                                            "value": "posicao",
+                                        },
+                                    ],
+                                    value="nota",
+                                    inline=True,
+                                    className="history-mode-selector",
+                                    inputClassName="history-mode-input",
+                                    labelClassName="history-mode-option",
+                                ),
+                            ],
+                            className="chart-title-row",
                         ),
-                        dcc.Graph(
-                            id="regional-history",
-                            className="plot-wrap",
-                            config={"displayModeBar": False},
+                        dcc.Loading(
+                            id="history-loading",
+                            type="circle",
+                            color="#007873",
+                            children=[
+                                dcc.Graph(
+                                    id="regional-history",
+                                    className="plot-wrap",
+                                    config={"displayModeBar": False},
+                                ),
+                            ],
                         ),
-                        html.Div(id="municipality-history-table"),
                         html.Div(
                             "Ver série histórica completa  ›", className="card-title"
                         ),
@@ -1064,10 +1256,17 @@ layout = html.Div(
                             [_icon("bars", 18), html.Span(id="bars-title")],
                             className="chart-title",
                         ),
-                        dcc.Graph(
-                            id="indicator-bars",
-                            className="plot-wrap",
-                            config={"displayModeBar": False},
+                        dcc.Loading(
+                            id="bars-loading",
+                            type="circle",
+                            color="#007873",
+                            children=[
+                                dcc.Graph(
+                                    id="indicator-bars",
+                                    className="plot-wrap",
+                                    config={"displayModeBar": False},
+                                ),
+                            ],
                         ),
                         html.Div(id="quick-read-card", className="quick-read-card"),
                         html.Div(
@@ -1107,6 +1306,22 @@ layout = html.Div(
             ],
             id="lower-grid",
             className="lower-grid",
+            style={"display": "none"},
+        ),
+        html.Section(
+            [
+                html.Div(
+                    html.Button(
+                        [_icon("map", 16), html.Span("Voltar para sele\u00e7\u00e3o")],
+                        id="regional-back-button",
+                        className="regional-back-button",
+                        n_clicks=0,
+                    ),
+                    className="regional-back-actions",
+                ),
+            ],
+            id="regional-back-actions",
+            className="regional-back-actions",
         ),
         html.Section(
             [
@@ -1124,7 +1339,7 @@ layout = html.Div(
                         ),
                         html.Span("›", className="chevron"),
                     ],
-                    href="#",
+                    href="/municipios",
                     className="action-card",
                 ),
                 html.A(
@@ -1143,7 +1358,7 @@ layout = html.Div(
                         ),
                         html.Span("›", className="chevron"),
                     ],
-                    href="#",
+                    href="/municipios",
                     className="action-card",
                 ),
                 html.A(
@@ -1181,6 +1396,7 @@ layout = html.Div(
     Output("metric-coredes-label", "children"),
     Output("selected-name", "children"),
     Output("selected-meta", "children"),
+    Output("selected-municipio-actions", "children"),
     Output("ranking-title", "children"),
     Output("detail-title", "children"),
     Output("indicator-detail-table", "children"),
@@ -1192,15 +1408,19 @@ layout = html.Div(
     Output("quick-read-card", "children"),
     Output("quick-read-card", "style"),
     Output("history-title", "children"),
-    Output("municipality-history-table", "children"),
     Output("bars-title", "children"),
     Input("filter-ano", "value"),
     Input("filter-regiao", "value"),
     Input("filter-corede", "value"),
     Input("filter-municipio", "value"),
+    Input("history-mode-selector", "value"),
 )
-def update_region_page(year, region, corede, municipio):
-    ranking_table_style = {"overflowX": "auto", "overflowY": "auto", "maxHeight": "344px"}
+def update_region_page(year, region, corede, municipio, history_mode):
+    ranking_table_style = {
+        "overflowX": "hidden",
+        "overflowY": "auto",
+        "maxHeight": "344px",
+    }
     ranking_style = [
         {"if": {"column_id": "delta_nota"}, "fontWeight": "700"},
         {"if": {"column_id": "delta_posicao"}, "fontWeight": "700"},
@@ -1232,7 +1452,7 @@ def update_region_page(year, region, corede, municipio):
             },
             "color": "#d92f3a",
         },
-    ]
+    ] + _classification_datatable_styles()
 
     if year is None or not region:
         empty = _empty_figure("Selecione uma região funcional.")
@@ -1245,6 +1465,7 @@ def update_region_page(year, region, corede, municipio):
             "Coredes",
             "-",
             "-",
+            html.Div(),
             "Ranking dos municípios",
             "Município selecionado",
             html.Div(
@@ -1259,7 +1480,6 @@ def update_region_page(year, region, corede, municipio):
             html.Div(),
             {"display": "none"},
             "Evolução média regional",
-            html.Div(),
             "Média por indicador",
         )
 
@@ -1279,6 +1499,7 @@ def update_region_page(year, region, corede, municipio):
             "Coredes",
             "-",
             "-",
+            html.Div(),
             f"Ranking dos municípios na {code}",
             "Município selecionado",
             html.Div(
@@ -1292,7 +1513,6 @@ def update_region_page(year, region, corede, municipio):
             html.Div(),
             {"display": "none"},
             f"Evolução média regional ({year})",
-            html.Div(),
             f"Média por indicador na {code}",
         )
 
@@ -1325,6 +1545,7 @@ def update_region_page(year, region, corede, municipio):
             coredes_metric_label,
             "",
             "",
+            html.Div(),
             ranking_scope_title,
             "Detalhes do município",
             _municipality_selection_prompt(code, total),
@@ -1336,7 +1557,6 @@ def update_region_page(year, region, corede, municipio):
             html.Div(),
             {"display": "none"},
             f"Evolu\u00e7\u00e3o m\u00e9dia regional ({scope['ano'].min()}-{year})",
-            html.Div(),
             f"M\u00e9dia por indicador na {code} ({year})",
         )
 
@@ -1344,7 +1564,24 @@ def update_region_page(year, region, corede, municipio):
     selected_score = _fmt_num(focus["nota_final"])
     selected_name = str(focus["municipio"])
     selected_corede = focus.get("corede")
-    selected_previous = previous[previous["municipio"] == selected_name] if not previous.empty else pd.DataFrame()
+    params = urlencode(
+        {
+            "ano": year,
+            "regiao": region or "",
+            "corede": corede or "",
+            "municipio": selected_name,
+        }
+    )
+    municipio_link = dcc.Link(
+        [_icon("map", 15), html.Span("Ver página completa")],
+        href=f"/municipios?{params}",
+        className="selected-municipio-link",
+    )
+    selected_previous = (
+        previous[previous["municipio"] == selected_name]
+        if not previous.empty
+        else pd.DataFrame()
+    )
     selected_delta = None
     if not selected_previous.empty:
         previous_score = selected_previous.iloc[0]["nota_final"]
@@ -1387,7 +1624,7 @@ def update_region_page(year, region, corede, municipio):
             },
             "color": "#d92f3a",
         },
-    ]
+    ] + _classification_datatable_styles()
 
     return (
         regional_scope_title,
@@ -1399,27 +1636,55 @@ def update_region_page(year, region, corede, municipio):
         _selected_name_with_corede(selected_name, selected_corede),
         html.Div(
             [
-                html.Div([html.Div(f"{selected_rank}º", className="selected-stat-value"), html.Div(f"lugar na {code}", className="selected-stat-label")]),
-                html.Div([html.Div(selected_score, className="selected-stat-value"), html.Div("Nota final", className="selected-stat-label")]),
-                html.Div([html.Div(_fmt_delta(selected_delta), className="selected-stat-value"), html.Div("Variação anual", className="selected-stat-label")]),
+                html.Div(
+                    [
+                        html.Div(f"{selected_rank}º", className="selected-stat-value"),
+                        html.Div(f"lugar na {code}", className="selected-stat-label"),
+                    ]
+                ),
+                html.Div(
+                    [
+                        html.Div(selected_score, className="selected-stat-value"),
+                        html.Div("Nota final", className="selected-stat-label"),
+                    ]
+                ),
+                html.Div(
+                    [
+                        html.Div(
+                            _fmt_delta(selected_delta), className="selected-stat-value"
+                        ),
+                        html.Div("Variação anual", className="selected-stat-label"),
+                    ]
+                ),
+                html.Div(
+                    [
+                        html.Div(
+                            _classification_label(focus.get("classificacao")),
+                            className=f"selected-stat-value classification-text status-{_classification_status(focus.get('classificacao'))}",
+                        ),
+                        html.Div("Desempenho pop.", className="selected-stat-label"),
+                    ]
+                ),
             ],
             className="selected-stats",
         ),
+        municipio_link,
         ranking_scope_title,
         "Perfil do município por indicador",
         _selected_detail_content(scope, focus, previous, code, year),
         _build_ranking_data(scope, previous),
         ranking_table_style,
         row_style,
-        _municipality_history_figure(region, corede, selected_name),
+        _municipality_history_figure(region, corede, selected_name, history_mode),
         _indicator_bar(scope),
         html.Div(
             _detail_table(scope, focus, previous, code, year),
             className="indicator-summary-panel",
         ),
         {},
-        "Evolução da nota final",
-        _municipality_history_table(region, corede, selected_name),
+        "Evolução da nota final"
+        if history_mode == "nota"
+        else "Evolução da posição no ranking",
         "Desempenho por indicador",
     )
 
@@ -1451,7 +1716,7 @@ def update_regions_summary(year):
 
 @callback(
     Output("filter-regiao", "value", allow_duplicate=True),
-    Input({"type": "region-summary-row", "region": ALL}, "n_clicks"),
+    Input({"type": "regional-overview-card", "region": ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
 def select_region_from_summary(_clicks):
@@ -1462,6 +1727,17 @@ def select_region_from_summary(_clicks):
     if isinstance(triggered, dict):
         return triggered.get("region")
     return dash.no_update
+
+
+@callback(
+    Output("filter-municipio", "value", allow_duplicate=True),
+    Input("regional-back-button", "n_clicks"),
+    prevent_initial_call=True,
+)
+def back_to_regional_selection(n_clicks):
+    if not n_clicks:
+        return dash.no_update
+    return None
 
 
 @callback(
@@ -1510,6 +1786,7 @@ def clear_ranking_selection_when_municipality_clears(municipio):
 )
 def toggle_regional_sections(region, municipio):
     hidden = {"display": "none"}
+    visible = {}
     if not region:
         return (
             {},
@@ -1527,24 +1804,24 @@ def toggle_regional_sections(region, municipio):
         return (
             hidden,
             "regional-hero municipality-compact",
-            {},
-            {},
+            visible,
+            visible,
             "dashboard-grid municipality-selected",
-            {},
-            {},
+            visible,
+            visible,
             "lower-grid municipality-selected",
-            {},
+            visible,
             hidden,
         )
     return (
         hidden,
         "regional-hero no-selected region-compact",
-        {},
+        visible,
         hidden,
         "dashboard-grid awaiting-municipality",
-        {},
-        {},
+        visible,
+        visible,
         "lower-grid region-selected",
-        {},
+        visible,
         hidden,
     )

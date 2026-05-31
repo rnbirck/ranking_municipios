@@ -7,3 +7,5 @@ __pycache__/
 .venv/
 .conda/
 src/data/cache/
+*.log
+log_erros.txt

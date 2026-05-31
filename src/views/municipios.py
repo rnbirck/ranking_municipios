@@ -1,215 +1,242 @@
+import re
+import threading
+import time
+import unicodedata
+from urllib.parse import parse_qs
+
 import dash
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, dcc, html
-from plotly.subplots import make_subplots
+from dash import ALL, Input, Output, State, callback, ctx, dcc, html
 
-from src.data_loader import get_sector_labels, load_ranking_data
+from src.data_loader import (
+    filter_ranking_data,
+    get_category_labels,
+    load_category_data,
+    load_category_positions,
+    load_indicator_names,
+    load_municipio_category_history_data,
+    load_municipio_indicator_data,
+    load_municipio_summary_data,
+    load_ranking_data,
+)
 
 
-# Página temporariamente fora da navegação/roteamento.
-# Mantemos o código aqui para reativação futura sem reconstruir a view.
+dash.register_page(__name__, path="/municipios", name="Munic\u00edpios")
 
-SECTOR_LABELS = get_sector_labels()
-SECTOR_COLUMNS = list(SECTOR_LABELS)
-COMPARE_COLORS = ["#007873", "#3f74e0", "#8f52db", "#7b8797"]
-TREND_OPTIONS = [{"label": "Total", "value": "nota_final"}] + [
-    {"label": label, "value": column} for column, label in SECTOR_LABELS.items()
-]
+CATEGORY_LABELS = get_category_labels()
+CATEGORY_ORDER = list(CATEGORY_LABELS)
+CATEGORY_DEFAULT = CATEGORY_ORDER[0] if CATEGORY_ORDER else "saude"
+CATEGORY_ICONS = {
+    "educacao": "book",
+    "financas": "coin",
+    "meio_ambiente": "tree",
+    "saude": "heart-pulse",
+    "seguranca": "shield-check",
+    "socioeconomico": "people",
+}
+MUNICIPIO_PRIMARY = "#b7791f"
+MUNICIPIO_PRIMARY_FILL = "rgba(183, 121, 31, 0.12)"
+MUNICIPIO_ACCENT = "#8a5a12"
+MUNICIPIO_AVERAGE = "#64748b"
+_PREFETCH_LOCK = threading.Lock()
+_PREFETCH_KEYS: set[tuple[int, str, str, int]] = set()
 
 
 def _fmt_num(value, digits: int = 2) -> str:
     if value is None or pd.isna(value):
         return "-"
     return (
-        f"{float(value):,.{digits}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        f"{float(value):,.{digits}f}".replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
     )
-
-
-def _fmt_delta(value, digits: int = 2) -> str:
-    if value is None or pd.isna(value):
-        return "-"
-    sign = "+" if float(value) >= 0 else ""
-    return f"{sign}{float(value):.{digits}f}".replace(".", ",")
 
 
 def _fmt_pos(value) -> str:
     if value is None or pd.isna(value):
         return "-"
-    return f"{int(value)}º"
+    return f"{int(value)}\u00ba"
 
 
-def _trend_label(column: str) -> str:
-    return "Nota final" if column == "nota_final" else SECTOR_LABELS.get(column, "Indicador")
-
-
-def _hover_layout(height: int, margin: dict, **kwargs):
-    layout = dict(
-        height=height,
-        margin=margin,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        hoverlabel=dict(
-            bgcolor="#ffffff",
-            bordercolor="#dfe6ec",
-            font=dict(
-                family="Inter, Segoe UI, Arial, sans-serif",
-                size=12,
-                color="#102542",
-            ),
-            align="left",
-        ),
-        **kwargs,
-    )
-    return layout
-
-
-def _icon(name: str, size: int = 24):
-    classes = {
-        "building": "bi-buildings",
-        "radar": "bi-bullseye",
-        "line": "bi-graph-up-arrow",
-        "rank": "bi-award",
-        "trophy": "bi-trophy",
-        "trend": "bi-arrow-up-right",
-        "star": "bi-star",
-        "shield": "bi-shield",
-        "table": "bi-table",
-        "info": "bi-info-circle",
-        "map": "bi-map",
-        "network": "bi-diagram-3",
-        "book": "bi-book",
-        "coin": "bi-coin",
-        "tree": "bi-tree",
-        "heart": "bi-heart-pulse",
-        "security": "bi-shield-check",
-        "users": "bi-people",
-    }
-    return html.I(
-        className=f"bi {classes.get(name, classes['building'])}",
-        style={"fontSize": f"{size}px"},
-    )
-
-
-def _year_frame(year) -> pd.DataFrame:
-    frame = load_ranking_data()
-    if year is not None:
-        frame = frame[frame["ano"] == year]
-    return frame.copy()
-
-
-def _municipio_options(values):
-    return [
-        {"label": municipio, "value": municipio, "search": municipio}
-        for municipio in values
-    ]
-
-
-def _history_for(names):
-    frame = load_ranking_data()
-    return frame[frame["municipio"].isin([name for name in names if name])].copy()
-
-
-def _row_for(frame: pd.DataFrame, municipio: str | None):
-    if frame.empty or not municipio:
+def _pos_num(value) -> int | None:
+    if value is None or pd.isna(value):
         return None
-    match = frame[frame["municipio"] == municipio]
-    if match.empty:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
         return None
-    return match.iloc[0]
 
 
-def _previous_row(municipio: str | None, year) -> pd.Series | None:
-    if not municipio or year is None:
-        return None
-    history = load_ranking_data()
-    previous = history[(history["ano"] == year - 1) & (history["municipio"] == municipio)]
-    if previous.empty:
-        return None
-    return previous.iloc[0]
-
-
-def _overall_rank(frame: pd.DataFrame, row) -> int | None:
-    if frame.empty or row is None:
-        return None
-    ranks = frame["nota_final"].rank(method="min", ascending=False).astype("Int64")
-    value = ranks.loc[row.name] if row.name in ranks.index else pd.NA
-    return int(value) if not pd.isna(value) else None
-
-
-def _indicator_rank(frame: pd.DataFrame, row, column: str) -> int | None:
-    if frame.empty or row is None:
-        return None
-    ranks = frame[column].rank(method="min", ascending=False).astype("Int64")
-    value = ranks.loc[row.name] if row.name in ranks.index else pd.NA
-    return int(value) if not pd.isna(value) else None
-
-
-def _state_average(frame: pd.DataFrame, column: str) -> str:
-    if frame.empty:
+def _fmt_text(value) -> str:
+    if value is None or pd.isna(value):
         return "-"
-    return _fmt_num(frame[column].mean())
+    text = str(value).strip()
+    return text if text else "-"
 
 
-def _best_and_worst(row):
-    if row is None:
-        return None, None
-    scored = [(column, float(row[column])) for column in SECTOR_COLUMNS]
-    best = max(scored, key=lambda item: item[1])
-    worst = min(scored, key=lambda item: item[1])
-    return best, worst
+def _classification_status(value) -> str:
+    text = "" if value is None or pd.isna(value) else str(value).strip()
+    normalized = (
+        unicodedata.normalize("NFKD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    if "acima" in normalized:
+        return "above"
+    if "baixo" in normalized or "abaixo" in normalized:
+        return "low"
+    if "intervalo" in normalized or "dentro" in normalized or "esperado" in normalized:
+        return "range"
+    return "neutral" if text else "missing"
 
 
-def _selected_names(selected, comparisons):
-    names = [selected, *(comparisons or [])]
-    return [name for index, name in enumerate(names) if name and name not in names[:index]]
+def _classification_badge(value, class_name: str = ""):
+    status = _classification_status(value)
+    label = _fmt_text(value)
+    classes = f"classification-badge status-{status}"
+    if class_name:
+        classes = f"{classes} {class_name}"
+    return html.Span(label, className=classes)
 
 
-def _selection_card(row, color: str, selected: bool = False):
-    if row is None:
-        return html.Div()
-    classes = "municipios-selection-card is-selected" if selected else "municipios-selection-card"
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Span(className="municipios-selection-dot", style={"background": color}),
-                    html.Div(str(row["municipio"]), className="municipios-selection-name"),
-                ],
-                className="municipios-selection-top",
-            ),
-            html.Div(
-                [
-                    html.Span(str(row["regiao_funcional"]), className="municipios-selection-badge"),
-                    html.Span(str(row["corede"]), className="municipios-selection-badge"),
-                ],
-                className="municipios-selection-meta",
-            ),
-        ],
-        className=classes,
+def _position_variation_chip(current_value, previous_value):
+    current_position = _pos_num(current_value)
+    previous_position = _pos_num(previous_value)
+
+    if current_position is None or previous_position is None:
+        label = "• Sem hist\u00f3rico"
+        tone = "is-neutral"
+    else:
+        difference = previous_position - current_position
+        if difference > 0:
+            label = f"▲ Subiu {difference}"
+            tone = "is-up"
+        elif difference < 0:
+            label = f"▼ Caiu {abs(difference)}"
+            tone = "is-down"
+        else:
+            label = "• Sem varia\u00e7\u00e3o"
+            tone = "is-neutral"
+
+    return html.Span(label, className=f"municipio-info-variation-chip {tone}")
+
+
+INDICATOR_FALLBACK_LABELS = {
+    "qt_acesso_infor": "Acesso \u00e0 informa\u00e7\u00e3o",
+}
+
+PERCENT_INDICATOR_MULTIPLIERS = {
+    "qt_acesso_infor": 100,
+    "formalidade_mercado_trabalho": 100,
+    "geracao_emprego_per_capita": 100,
+    "vinculos_per_capita": 100,
+    "proporcao_pessoas_baixa_renda": 1,
+    "vulnerabilidade_social": 1,
+}
+
+
+def _indicator_label(value: str) -> str:
+    identifier = str(value or "").strip()
+    try:
+        friendly_name = load_indicator_names().get(identifier)
+    except Exception as exc:
+        print(f"Erro ao carregar nomes dos indicadores: {exc}")
+        friendly_name = None
+    if friendly_name:
+        return friendly_name
+    return INDICATOR_FALLBACK_LABELS.get(
+        identifier, identifier.replace("_", " ").capitalize()
     )
 
 
-def _selection_placeholder_card():
-    return html.Div(
-        [
-            html.Div(
-                [
-                    _icon("users", 18),
-                    html.Span("Adicionar comparacao", className="municipios-selection-placeholder-title"),
-                ],
-                className="municipios-selection-placeholder-top",
-            ),
-            html.P(
-                "Use o filtro 'Comparar com' para incluir outros municipios.",
-                className="municipios-selection-placeholder-text",
-            ),
-        ],
-        className="municipios-selection-card municipios-selection-card-placeholder",
+def _indicator_display_label(value: str, row=None) -> str:
+    if row is not None:
+        try:
+            name = row.get("indicador_nome")
+        except AttributeError:
+            name = None
+        if name is not None and not pd.isna(name):
+            text = str(name).strip()
+            if text and text != str(value or "").strip():
+                return text
+    return _indicator_label(str(value or ""))
+
+
+def _is_percent_indicator(indicator: str | None) -> bool:
+    return str(indicator or "").strip() in PERCENT_INDICATOR_MULTIPLIERS
+
+
+def _indicator_observed_display_value(value, indicator: str | None):
+    if value is None or pd.isna(value):
+        return None
+    numeric_value = float(value)
+    multiplier = PERCENT_INDICATOR_MULTIPLIERS.get(str(indicator or "").strip())
+    if multiplier is None:
+        return numeric_value
+    return numeric_value * multiplier
+
+
+def _fmt_indicator_observed_value(value, indicator: str | None) -> str:
+    display_value = _indicator_observed_display_value(value, indicator)
+    if display_value is None or pd.isna(display_value):
+        return "-"
+    suffix = "%" if _is_percent_indicator(indicator) else ""
+    return f"{_fmt_num(display_value)}{suffix}"
+
+
+RADAR_LABELS = {
+    "adequacao formacao docente": "Forma\u00e7\u00e3o<br>docente",
+    "cobertura acs": "Cobertura<br>ACS",
+    "cobertura aps": "Cobertura<br>APS",
+    "cobertura vacinal penta polio media": "Vacinal<br>penta/polio",
+    "medicos por mil habitantes": "M\u00e9dicos<br>por mil hab.",
+    "obitos causas evitaveis mil habitantes": "\u00d3bitos evit\u00e1veis<br>por mil hab.",
+    "proporcao consultas pre natal": "Pr\u00e9-natal",
+    "proporcao gravidez adolescencia": "Gravidez<br>adolesc\u00eancia",
+    "qt acesso infor": "Acesso \u00e0<br>informa\u00e7\u00e3o",
+    "saeb ensino fundamental": "SAEB<br>fundamental",
+    "taxa cobertura creche": "Cobertura<br>creche",
+    "taxa distorcao fundamental": "Distor\u00e7\u00e3o<br>fundamental",
+}
+
+
+def _radar_label(value: str, max_words_per_line: int = 2) -> str:
+    normalized = str(value or "").replace("_", " ").strip().lower()
+    if normalized in RADAR_LABELS:
+        return RADAR_LABELS[normalized]
+
+    words = _indicator_label(value).split()
+    if len(words) <= max_words_per_line:
+        return " ".join(words)
+    lines = [
+        " ".join(words[index : index + max_words_per_line])
+        for index in range(0, len(words), max_words_per_line)
+    ]
+    return "<br>".join(lines)
+
+
+def _icon(name: str, size: int = 22):
+    return html.I(className=f"bi bi-{name}", style={"fontSize": f"{size}px"})
+
+
+def _selector_option_label(icon_name: str, text: str):
+    return html.Span(
+        [_icon(icon_name, 16), html.Span(text)],
+        className="municipio-info-option-content",
     )
 
 
-def _empty_figure(message: str):
+def _indicator_option_label(text: str):
+    return html.Span(text, className="municipio-info-indicator-label")
+
+
+def _empty_state(text: str):
+    return html.Div(text, className="empty-state")
+
+
+def _empty_figure(message: str, height: int = 260) -> go.Figure:
     figure = go.Figure()
     figure.add_annotation(
         text=message,
@@ -222,385 +249,1077 @@ def _empty_figure(message: str):
     )
     figure.update_xaxes(visible=False)
     figure.update_yaxes(visible=False)
-    figure.update_layout(height=290, margin=dict(l=12, r=12, t=12, b=12))
-    return figure
-
-
-def _trend_history_title(trend_mode: str, trend_column: str) -> str:
-    metric_label = _trend_label(trend_column)
-    if trend_mode == "rank":
-        return "Evolução da posição geral" if trend_column == "nota_final" else f"Evolução da posição em {metric_label}"
-    return "Evolução da nota final" if trend_column == "nota_final" else f"Evolução da nota em {metric_label}"
-
-
-def _trend_history_figure(selected, comparisons, trend_column, trend_mode):
-    names = _selected_names(selected, comparisons)
-    history = _history_for(names)
-    if history.empty or not selected:
-        return _empty_figure("Selecione um município para visualizar a evolução.")
-
-    metric_label = _trend_label(trend_column)
-    figure = go.Figure()
-
-    if trend_mode == "rank":
-        statewide = load_ranking_data()
-        max_rank = statewide.groupby("ano")["municipio"].nunique().max()
-        for index, name in enumerate(names):
-            data = history[history["municipio"] == name].sort_values("ano").copy()
-            if data.empty:
-                continue
-            ranks = []
-            for _, row in data.iterrows():
-                year_frame = statewide[statewide["ano"] == row["ano"]]
-                if trend_column == "nota_final":
-                    year_ranks = year_frame["nota_final"].rank(method="min", ascending=False).astype("Int64")
-                    value = year_ranks.loc[row.name] if row.name in year_ranks.index else pd.NA
-                    ranks.append(int(value) if not pd.isna(value) else None)
-                else:
-                    ranks.append(_indicator_rank(year_frame, row, trend_column))
-            data["trend_value"] = ranks
-            figure.add_trace(
-                go.Scatter(
-                    x=data["ano"],
-                    y=data["trend_value"],
-                    customdata=[_fmt_pos(value) for value in data["trend_value"]],
-                    mode="lines+markers+text",
-                    text=[_fmt_pos(value) for value in data["trend_value"]],
-                    textposition="top center",
-                    name=name,
-                    line=dict(color=COMPARE_COLORS[index % len(COMPARE_COLORS)], width=3 if index == 0 else 2),
-                    marker=dict(size=7),
-                    hovertemplate=f"<b>%{{fullData.name}}</b><br>Ano %{{x}}<br>Posição em {metric_label}: %{{customdata}}<extra></extra>",
-                )
-            )
-        figure.update_layout(
-            **_hover_layout(
-                height=332,
-                margin=dict(l=18, r=20, t=36, b=28),
-                yaxis=dict(
-                    autorange="reversed",
-                    range=[max_rank + 8, 1],
-                    showticklabels=False,
-                    ticks="",
-                    showline=False,
-                    zeroline=False,
-                    gridcolor="#e5ebef",
-                    fixedrange=True,
-                ),
-                xaxis=dict(tickmode="linear", showgrid=False, color="#102542"),
-                legend=dict(orientation="h", y=1.14, x=0.5, xanchor="center"),
-                showlegend=True,
-            )
-        )
-        return figure
-
-    y_values = history[trend_column].dropna()
-    y_min = float(y_values.min()) if not y_values.empty else 0
-    y_max = float(y_values.max()) if not y_values.empty else 10
-    span = max(y_max - y_min, 0.9)
-    y_range = [max(0, y_min - span * 0.2), min(10, y_max + span * 0.2)]
-    for index, name in enumerate(names):
-        data = history[history["municipio"] == name].sort_values("ano")
-        if data.empty:
-            continue
-        figure.add_trace(
-            go.Scatter(
-                x=data["ano"],
-                y=data[trend_column],
-                customdata=[_fmt_num(value) for value in data[trend_column]],
-                mode="lines+markers+text",
-                text=[_fmt_num(value) for value in data[trend_column]],
-                textposition="top center",
-                name=name,
-                line=dict(color=COMPARE_COLORS[index % len(COMPARE_COLORS)], width=3 if index == 0 else 2),
-                marker=dict(size=7),
-                hovertemplate=f"<b>%{{fullData.name}}</b><br>Ano %{{x}}<br>{metric_label}: %{{customdata}}<extra></extra>",
-            )
-        )
     figure.update_layout(
-        **_hover_layout(
-            height=332,
-            margin=dict(l=18, r=20, t=36, b=28),
-            yaxis=dict(
-                range=y_range,
-                showticklabels=False,
-                ticks="",
-                showline=False,
-                zeroline=False,
-                gridcolor="#e5ebef",
-                fixedrange=True,
-            ),
-            xaxis=dict(tickmode="linear", showgrid=False, color="#102542"),
-            legend=dict(orientation="h", y=1.14, x=0.5, xanchor="center"),
-            showlegend=True,
-        )
+        height=height,
+        margin=dict(l=12, r=12, t=12, b=12),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
     )
     return figure
 
 
-def _radar_figure(year_frame, selected, comparisons, radar_mode):
-    if year_frame.empty or not selected:
-        return _empty_figure("Selecione um município para comparar perfis.")
+def _safe_ranking_data() -> pd.DataFrame:
+    try:
+        return load_ranking_data()
+    except Exception as exc:
+        print(f"Erro ao carregar ranking_municipios: {exc}")
+        return pd.DataFrame()
 
-    names = _selected_names(selected, comparisons)[:3]
-    labels = [SECTOR_LABELS[column] for column in SECTOR_COLUMNS]
-    labels_closed = labels + [labels[0]]
-    state_values = [float(year_frame[column].mean()) for column in SECTOR_COLUMNS]
 
-    if radar_mode == "side_by_side" and len(names) > 1:
-        figure = make_subplots(
-            rows=1,
-            cols=len(names),
-            specs=[[{"type": "polar"} for _ in names]],
-            subplot_titles=names,
-            horizontal_spacing=0.08,
+def _safe_category_data(category: str) -> pd.DataFrame:
+    try:
+        return load_category_data(category)
+    except Exception as exc:
+        print(f"Erro ao carregar categoria {category}: {exc}")
+        return pd.DataFrame()
+
+
+def _safe_category_positions(
+    year, region: str | None, corede: str | None
+) -> pd.DataFrame:
+    try:
+        return load_category_positions(year, region, corede)
+    except Exception as exc:
+        print(f"Erro ao carregar posicoes das categorias: {exc}")
+        return pd.DataFrame()
+
+
+def _safe_municipio_summary(
+    year=None,
+    region: str | None = None,
+    corede: str | None = None,
+    municipio: str | None = None,
+) -> pd.DataFrame:
+    try:
+        return load_municipio_summary_data(year, region, corede, municipio)
+    except Exception as exc:
+        print(f"Erro ao carregar resumo otimizado de municipios: {exc}")
+        return pd.DataFrame()
+
+
+def _safe_municipio_category_history(
+    category: str, region: str | None, municipio: str | None
+) -> pd.DataFrame:
+    try:
+        return load_municipio_category_history_data(category, region, municipio)
+    except Exception as exc:
+        print(f"Erro ao carregar historico otimizado da categoria: {exc}")
+        return pd.DataFrame()
+
+
+def _safe_municipio_indicator_data(
+    category: str,
+    region: str | None,
+    municipio: str | None,
+    indicator: str | None = None,
+) -> pd.DataFrame:
+    try:
+        return load_municipio_indicator_data(category, region, municipio, indicator)
+    except Exception as exc:
+        print(f"Erro ao carregar indicadores otimizados do municipio: {exc}")
+        return pd.DataFrame()
+
+
+def _prefetch_municipio_detail_data(
+    year, region: str | None, category: str | None = None
+) -> None:
+    if year is None or not region:
+        return
+
+    target_category = category if category in CATEGORY_LABELS else CATEGORY_DEFAULT
+    key = (int(year), str(region), target_category, int(time.time() // 900))
+    with _PREFETCH_LOCK:
+        if key in _PREFETCH_KEYS:
+            return
+        _PREFETCH_KEYS.add(key)
+
+    def worker() -> None:
+        try:
+            ranking = _safe_ranking_data()
+            previous_year = _previous_year(year, ranking)
+            if previous_year is not None:
+                _safe_category_positions(previous_year, region, None)
+        except Exception as exc:
+            print(f"Erro no pre-carregamento de municipio: {exc}")
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _selected_context(year, region, municipio):
+    if year is None or not municipio:
+        return None, region
+
+    ranking = _safe_ranking_data()
+    if ranking.empty:
+        return None, region
+
+    frame = ranking[ranking["ano"] == int(year)].copy()
+    if region:
+        frame = frame[frame["regiao_funcional"] == region]
+
+    match = frame[frame["municipio"] == municipio]
+    if match.empty and not region:
+        match = ranking[
+            (ranking["ano"] == int(year)) & (ranking["municipio"] == municipio)
+        ]
+    if match.empty:
+        return None, region
+
+    row = match.iloc[0]
+    return row, str(row["regiao_funcional"])
+
+
+def _region_sort_value(region: str) -> tuple[int, str]:
+    match = re.search(r"(\d+)", region or "")
+    if match:
+        return int(match.group(1)), region
+    return 999, region or ""
+
+
+def _build_region_summary_data(year):
+    frame = filter_ranking_data(ano=year)
+    if frame.empty:
+        return []
+
+    rows = []
+    for region, group in frame.groupby("regiao_funcional", dropna=True):
+        coredes = sorted(
+            group["corede"].replace("", pd.NA).dropna().astype(str).unique()
         )
-        polar_layout = dict(
+        rows.append(
+            {
+                "regiao": region,
+                "municipios": int(group["municipio"].nunique()),
+                "coredes_count": len(coredes),
+                "coredes": ", ".join(coredes),
+                "nota_final": _fmt_num(group["nota_final"].mean()),
+            }
+        )
+    return sorted(rows, key=lambda item: _region_sort_value(item["regiao"]))
+
+
+def _build_region_summary_table(rows):
+    if not rows:
+        return html.Div(
+            "N\u00e3o h\u00e1 dados regionais para o ano selecionado.",
+            className="empty-state",
+        )
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div(
+                        html.Span(row["regiao"], className="region-explore-badge"),
+                        className="region-explore-col region-explore-col--badge",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                str(row["municipios"]),
+                                className="region-explore-metric-value",
+                            ),
+                            html.Div(
+                                "municípios",
+                                className="region-explore-metric-label",
+                            ),
+                        ],
+                        className="region-explore-col region-explore-col--metric",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                str(row["coredes_count"]),
+                                className="region-explore-metric-value",
+                            ),
+                            html.Div(
+                                "Coredes",
+                                className="region-explore-metric-label",
+                            ),
+                        ],
+                        className="region-explore-col region-explore-col--metric",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                "Coredes",
+                                className="region-explore-coredes-label",
+                            ),
+                            html.Div(
+                                row["coredes"],
+                                className="region-explore-coredes-text",
+                            ),
+                        ],
+                        className="region-explore-col region-explore-col--coredes",
+                    ),
+                    html.Div(
+                        html.Span("Explorar região", className="region-explore-cta"),
+                        className="region-explore-col region-explore-col--cta",
+                    ),
+                ],
+                className="region-explore-card",
+                id={"type": "municipio-overview-card", "region": row["regiao"]},
+                n_clicks=0,
+                title=f"Selecionar {row['regiao']}",
+            )
+            for row in rows
+        ],
+        className="region-explore-list",
+    )
+
+
+def _build_region_overview(year):
+    rows = _build_region_summary_data(year)
+    municipalities = sum(row["municipios"] for row in rows)
+    coredes = set()
+    for row in rows:
+        coredes.update(
+            item.strip() for item in row["coredes"].split(",") if item.strip()
+        )
+
+    return html.Section(
+        [
+            html.Section(
+                [
+                    html.Div(_icon("map", 52), className="region-hero-icon"),
+                    html.Div(
+                        [
+                            html.H1(
+                                "Selecione uma regi\u00e3o funcional",
+                                className="regional-title",
+                            ),
+                            html.P(
+                                "Escolha uma regi\u00e3o funcional no filtro acima para abrir o ranking dos munic\u00edpios, os indicadores regionais e os detalhes por munic\u00edpio.",
+                                className="regional-subtitle",
+                            ),
+                        ],
+                        className="region-hero-copy",
+                    ),
+                ],
+                className="region-overview-hero",
+            ),
+            html.Section(
+                [
+                    html.Article(
+                        [
+                            html.Div(
+                                _icon("diagram-3", 30),
+                                className="overview-metric-icon teal-dark",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        str(len(rows)),
+                                        className="overview-metric-value",
+                                    ),
+                                    html.Div(
+                                        "regi\u00f5es funcionais",
+                                        className="overview-metric-label",
+                                    ),
+                                ]
+                            ),
+                        ],
+                        className="overview-metric-card",
+                    ),
+                    html.Article(
+                        [
+                            html.Div(
+                                _icon("people", 30),
+                                className="overview-metric-icon teal",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        str(municipalities),
+                                        className="overview-metric-value",
+                                    ),
+                                    html.Div(
+                                        "munic\u00edpios",
+                                        className="overview-metric-label",
+                                    ),
+                                ]
+                            ),
+                        ],
+                        className="overview-metric-card",
+                    ),
+                    html.Article(
+                        [
+                            html.Div(
+                                _icon("journal-text", 30),
+                                className="overview-metric-icon gold",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        str(len(coredes)),
+                                        className="overview-metric-value",
+                                    ),
+                                    html.Div(
+                                        "Coredes", className="overview-metric-label"
+                                    ),
+                                ]
+                            ),
+                        ],
+                        className="overview-metric-card",
+                    ),
+                    html.Article(
+                        [
+                            html.Div(
+                                _icon("calendar3", 30),
+                                className="overview-metric-icon calendar",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "Ano mais recente:",
+                                        className="overview-year-label",
+                                    ),
+                                    html.Div(
+                                        str(year) if year else "-",
+                                        className="overview-metric-value",
+                                    ),
+                                ]
+                            ),
+                        ],
+                        className="overview-metric-card",
+                    ),
+                ],
+                className="overview-metrics-grid",
+            ),
+            html.Section(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                _icon("table", 22), className="summary-title-icon"
+                            ),
+                            html.Div(
+                                "Explore as regiões funcionais",
+                                className="summary-title",
+                            ),
+                        ],
+                        className="summary-heading",
+                    ),
+                    html.Div(_build_region_summary_table(rows)),
+                    html.Div(
+                        [
+                            html.Div(
+                                _icon("info-circle", 18), className="summary-note-icon"
+                            ),
+                            html.Div(
+                                "Selecione uma região para explorar o ranking dos municípios e os detalhes regionais."
+                            ),
+                        ],
+                        className="summary-note region-explore-note",
+                    ),
+                ],
+                className="region-summary-card",
+            ),
+        ],
+        className="region-overview municipio-region-overview",
+    )
+
+
+def _with_classificacao_from_ranking(frame: pd.DataFrame, ranking: pd.DataFrame):
+    if frame.empty or "classificacao" not in ranking.columns:
+        return frame
+    if "classificacao" in frame.columns:
+        has_values = (
+            frame["classificacao"].fillna("").astype(str).str.strip().ne("").any()
+        )
+        if has_values:
+            return frame
+        frame = frame.drop(columns=["classificacao"])
+
+    key_candidates = [
+        ["id_municipio", "ano", "regiao_funcional"],
+        ["municipio", "ano", "regiao_funcional"],
+    ]
+    for keys in key_candidates:
+        if all(
+            column in frame.columns and column in ranking.columns for column in keys
+        ):
+            lookup = (
+                ranking[keys + ["classificacao"]]
+                .dropna(subset=["classificacao"])
+                .drop_duplicates(keys)
+            )
+            if lookup.empty:
+                return frame
+            return frame.merge(lookup, on=keys, how="left")
+
+    return frame
+
+
+def _region_municipalities_table(year, region: str | None, corede: str | None):
+    summary = _safe_municipio_summary(year, region, corede)
+    ranking = _safe_ranking_data()
+    if ranking.empty or year is None:
+        return _empty_state("Sem dados de munic\u00edpios para listar.")
+    if not region:
+        return _build_region_overview(year)
+
+    if summary.empty:
+        frame = ranking[
+            (ranking["ano"] == int(year)) & (ranking["regiao_funcional"] == region)
+        ].copy()
+        if corede:
+            frame = frame[frame["corede"] == corede]
+    else:
+        frame = summary.copy()
+    if frame.empty:
+        return _empty_state("N\u00e3o h\u00e1 munic\u00edpios no recorte selecionado.")
+
+    frame = _with_classificacao_from_ranking(frame, ranking)
+    frame = frame.sort_values(["ranking_regiao_funcional", "municipio"])
+    _prefetch_municipio_detail_data(year, region, CATEGORY_DEFAULT)
+    positions = pd.DataFrame()
+    if summary.empty:
+        positions = _safe_category_positions(year, region, None)
+    category_positions = {}
+    for category in CATEGORY_ORDER:
+        summary_column = f"ranking_{category}"
+        if summary_column in frame.columns:
+            category_positions[category] = frame.set_index("municipio")[
+                summary_column
+            ].to_dict()
+        else:
+            category_positions[category] = (
+                positions[positions["category"] == category]
+                .set_index("municipio")["ranking_dimensao"]
+                .to_dict()
+                if not positions.empty
+                else {}
+            )
+
+    header_cells = [
+        html.Th("Geral"),
+        html.Th("Munic\u00edpio"),
+        html.Th("Corede"),
+        html.Th("Desempenho"),
+        *[html.Th(CATEGORY_LABELS[category]) for category in CATEGORY_ORDER],
+    ]
+    rows = [
+        html.Tr(
+            [
+                html.Td(
+                    html.Span(
+                        _fmt_pos(row["ranking_regiao_funcional"]),
+                        className="score-pill compact",
+                    )
+                ),
+                html.Td(str(row["municipio"])),
+                html.Td(_fmt_text(row.get("corede"))),
+                html.Td(_classification_badge(row.get("classificacao"), "compact")),
+                *[
+                    html.Td(
+                        _fmt_pos(
+                            category_positions.get(category, {}).get(row["municipio"])
+                        )
+                    )
+                    for category in CATEGORY_ORDER
+                ],
+            ],
+            id={
+                "type": "municipio-info-row",
+                "municipio": str(row["municipio"]),
+                "corede": _fmt_text(row.get("corede")),
+            },
+            n_clicks=0,
+            title=f"Selecionar {row['municipio']}",
+        )
+        for _, row in frame.iterrows()
+    ]
+
+    subtitle = (
+        f"{len(frame)} munic\u00edpios em {region}"
+        if not corede
+        else f"{len(frame)} munic\u00edpios em {region} - {corede}"
+    )
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            _icon("list-ol", 18),
+                            html.Span("Munic\u00edpios da regi\u00e3o"),
+                        ],
+                        className="chart-title",
+                    ),
+                    html.Div(subtitle, className="municipio-info-region-subtitle"),
+                ],
+                className="municipio-info-region-heading",
+            ),
+            html.Div(
+                html.Table(
+                    [
+                        html.Thead(html.Tr(header_cells)),
+                        html.Tbody(rows),
+                    ],
+                    className="region-summary-table municipio-info-region-table",
+                ),
+                className="municipio-info-region-table-scroll",
+            ),
+        ],
+        className="chart-card municipio-info-region-card",
+    )
+
+
+def _previous_year(year, ranking: pd.DataFrame | None = None) -> int | None:
+    if year is None:
+        return None
+    frame = ranking if ranking is not None else _safe_ranking_data()
+    if frame.empty or "ano" not in frame.columns:
+        return None
+    previous_years = sorted(
+        frame.loc[frame["ano"] < int(year), "ano"].dropna().astype(int).unique()
+    )
+    return previous_years[-1] if previous_years else None
+
+
+def _category_cards(
+    year,
+    region,
+    municipio,
+    selected_category=None,
+    current_positions: pd.DataFrame | None = None,
+    previous_positions: pd.DataFrame | None = None,
+    previous_year: int | None = None,
+):
+    current_positions = (
+        current_positions
+        if current_positions is not None
+        else _safe_category_positions(year, region, None)
+    )
+
+    cards = []
+    for category in CATEGORY_ORDER:
+        current_match = (
+            current_positions[
+                (current_positions["category"] == category)
+                & (current_positions["municipio"] == municipio)
+            ]
+            if not current_positions.empty
+            else pd.DataFrame()
+        )
+
+        if current_match.empty:
+            current_rank = None
+            previous_rank = None
+            value = "-"
+            previous_position = "Anterior: -"
+        else:
+            current_rank = current_match.iloc[0].get("ranking_dimensao")
+            value = _fmt_pos(current_rank)
+            previous_match = (
+                previous_positions[
+                    (previous_positions["category"] == category)
+                    & (previous_positions["municipio"] == municipio)
+                ]
+                if previous_positions is not None and not previous_positions.empty
+                else pd.DataFrame()
+            )
+            if previous_match.empty or previous_year is None:
+                previous_rank = None
+                previous_position = "Anterior: -"
+            else:
+                previous_rank = previous_match.iloc[0].get("ranking_dimensao")
+                previous_position = (
+                    f"Anterior ({previous_year}): {_fmt_pos(previous_rank)}"
+                )
+
+        variation_chip = _position_variation_chip(current_rank, previous_rank)
+
+        cards.append(
+            html.Article(
+                [
+                    html.Div(
+                        _icon(CATEGORY_ICONS[category], 24),
+                        className="municipio-info-category-icon",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                CATEGORY_LABELS[category],
+                                className="municipio-info-card-label",
+                            ),
+                            html.Div(value, className="municipio-info-card-value"),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        previous_position,
+                                        className="municipio-info-card-score",
+                                    ),
+                                    variation_chip,
+                                ],
+                                className="municipio-info-card-meta",
+                            ),
+                        ]
+                    ),
+                ],
+                className=(
+                    "municipio-info-category-card is-selected"
+                    if category == selected_category
+                    else "municipio-info-category-card"
+                ),
+                id={"type": "category-card", "category": category},
+                n_clicks=0,
+                title=f"Selecionar categoria {CATEGORY_LABELS[category]}",
+            )
+        )
+    return cards
+
+
+def _category_history(
+    category: str,
+    region: str | None,
+    municipio: str | None,
+    category_data: pd.DataFrame | None = None,
+):
+    frame = (
+        category_data if category_data is not None else _safe_category_data(category)
+    )
+    if frame.empty or not region or not municipio:
+        return pd.DataFrame(), 0
+
+    region_frame = frame[frame["regiao_funcional"] == region].copy()
+    history = (
+        region_frame[region_frame["municipio"] == municipio]
+        .sort_values("ano")
+        .drop_duplicates(["ano", "municipio"])
+    )
+    if "total_municipios_regiao" in history.columns:
+        max_value = history["total_municipios_regiao"].max()
+    else:
+        max_value = region_frame.groupby("ano")["municipio"].nunique().max()
+    max_rank = int(max_value) if pd.notna(max_value) else 0
+    return history, max_rank
+
+
+def _category_history_figure(
+    category: str,
+    region: str | None,
+    municipio: str | None,
+    category_data: pd.DataFrame | None = None,
+):
+    history, max_rank = _category_history(category, region, municipio, category_data)
+    if history.empty:
+        return _empty_figure(
+            "Selecione um munic\u00edpio para ver o hist\u00f3rico.", height=260
+        )
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=history["ano"],
+            y=history["ranking_dimensao"],
+            mode="lines+markers+text",
+            text=[_fmt_pos(value) for value in history["ranking_dimensao"]],
+            customdata=[_fmt_num(value) for value in history["nota_dimensao"]],
+            textposition="top center",
+            line=dict(color=MUNICIPIO_PRIMARY, width=3),
+            marker=dict(size=7, color=MUNICIPIO_PRIMARY),
+            cliponaxis=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Posi\u00e7\u00e3o na categoria: %{text}<br>"
+                "Nota da categoria: %{customdata}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        height=254,
+        margin=dict(l=46, r=30, t=42, b=36),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            tickmode="linear", showgrid=False, color="#102542", tickfont=dict(size=10)
+        ),
+        yaxis=dict(
+            title=dict(text="Posi\u00e7\u00e3o", font=dict(size=11, color="#526277")),
+            autorange="reversed",
+            range=[max_rank + 6, 0] if max_rank else None,
+            showticklabels=True,
+            tickfont=dict(size=10, color="#526277"),
+            ticks="",
+            gridcolor="#e5ebef",
+            zeroline=False,
+            fixedrange=True,
+        ),
+        hoverlabel=dict(
+            bgcolor="#ffffff",
+            bordercolor="#dfe6ec",
+            font=dict(color="#102542"),
+        ),
+        showlegend=False,
+    )
+    return figure
+
+
+def _category_radar_figure(
+    category: str,
+    year,
+    region: str | None,
+    municipio: str | None,
+    category_data: pd.DataFrame | None = None,
+):
+    if not region or not municipio or year is None:
+        return _empty_figure("Selecione um munic\u00edpio.", height=260)
+
+    frame = (
+        category_data if category_data is not None else _safe_category_data(category)
+    )
+    if frame.empty:
+        return _empty_figure("Sem dados para a categoria.", height=260)
+
+    current_frame = frame[
+        (frame["ano"] == int(year))
+        & (frame["regiao_funcional"] == region)
+        & (frame["municipio"] == municipio)
+    ].copy()
+    if current_frame.empty:
+        return _empty_figure("Sem dados para o recorte.", height=260)
+
+    indicadores = current_frame["indicador"].dropna().unique()
+    if len(indicadores) == 0:
+        return _empty_figure("Sem indicadores na categoria.", height=260)
+
+    values = []
+    medias = []
+    labels = []
+    for indicador in indicadores:
+        indicador_rows = frame[
+            (frame["ano"] == int(year))
+            & (frame["regiao_funcional"] == region)
+            & (frame["indicador"] == indicador)
+        ]
+        municipio_row = current_frame[current_frame["indicador"] == indicador]
+        if municipio_row.empty or pd.isna(municipio_row.iloc[0]["nota_indicador"]):
+            values.append(0)
+        else:
+            values.append(float(municipio_row.iloc[0]["nota_indicador"]))
+        if (
+            not municipio_row.empty
+            and "media_nota_indicador_regiao" in municipio_row.columns
+            and not pd.isna(municipio_row.iloc[0]["media_nota_indicador_regiao"])
+        ):
+            medias.append(float(municipio_row.iloc[0]["media_nota_indicador_regiao"]))
+        else:
+            medias.append(float(indicador_rows["nota_indicador"].mean()))
+        labels.append(_radar_label(indicador))
+
+    labels_closed = labels + [labels[0]]
+    values_closed = values + [values[0]]
+    medias_closed = medias + [medias[0]]
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatterpolar(
+            r=values_closed,
+            theta=labels_closed,
+            customdata=[_fmt_num(v) for v in values_closed],
+            mode="lines+markers",
+            name=str(municipio),
+            line=dict(color=MUNICIPIO_PRIMARY, width=3),
+            marker=dict(size=8, color=MUNICIPIO_PRIMARY),
+            fill="toself",
+            fillcolor=MUNICIPIO_PRIMARY_FILL,
+            hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
+        )
+    )
+    figure.add_trace(
+        go.Scatterpolar(
+            r=medias_closed,
+            theta=labels_closed,
+            customdata=[_fmt_num(v) for v in medias_closed],
+            mode="lines+markers",
+            name=f"M\u00e9dia da {region}",
+            line=dict(color=MUNICIPIO_AVERAGE, width=2, dash="dash"),
+            marker=dict(size=6, color=MUNICIPIO_AVERAGE),
+            hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
+        )
+    )
+    figure.update_layout(
+        height=292,
+        margin=dict(l=30, r=18, t=12, b=18),
+        paper_bgcolor="rgba(0,0,0,0)",
+        polar=dict(
             bgcolor="rgba(0,0,0,0)",
+            domain=dict(x=[0.06, 0.68], y=[0.02, 0.96]),
             radialaxis=dict(
                 range=[0, 10],
                 tickvals=[0, 2.5, 5, 7.5, 10],
-                tickfont=dict(size=10, color="#708095"),
+                showticklabels=False,
                 gridcolor="#dfe7ed",
             ),
             angularaxis=dict(
                 tickfont=dict(size=10, color="#102542"),
                 gridcolor="#dfe7ed",
             ),
-        )
-
-        for index, name in enumerate(names, start=1):
-            row = _row_for(year_frame, name)
-            if row is None:
-                continue
-            values = [float(row[column]) for column in SECTOR_COLUMNS]
-            color = COMPARE_COLORS[(index - 1) % len(COMPARE_COLORS)]
-            fill_color = f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.10)"
-            figure.add_trace(
-                go.Scatterpolar(
-                    r=values + [values[0]],
-                    theta=labels_closed,
-                    customdata=[_fmt_num(value) for value in values + [values[0]]],
-                    mode="lines+markers",
-                    name=name,
-                    legendgroup=name,
-                    line=dict(color=color, width=3),
-                    marker=dict(size=6),
-                    fill="toself",
-                    fillcolor=fill_color,
-                    hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
-                ),
-                row=1,
-                col=index,
-            )
-            figure.add_trace(
-                go.Scatterpolar(
-                    r=state_values + [state_values[0]],
-                    theta=labels_closed,
-                    customdata=[_fmt_num(value) for value in state_values + [state_values[0]]],
-                    mode="lines+markers",
-                    name="Média do RS",
-                    legendgroup="media-rs",
-                    showlegend=index == 1,
-                    line=dict(color="#8a97a8", width=2, dash="dash"),
-                    marker=dict(size=5),
-                    hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
-                ),
-                row=1,
-                col=index,
-            )
-
-        layout_updates = {
-            "polar": polar_layout,
-            "legend": dict(orientation="h", y=1.14, x=0.5, xanchor="center"),
-            "showlegend": True,
-        }
-        if len(names) > 1:
-            layout_updates["polar2"] = polar_layout
-        if len(names) > 2:
-            layout_updates["polar3"] = polar_layout
-
-        figure.update_layout(
-            **_hover_layout(
-                height=430,
-                margin=dict(l=10, r=10, t=52, b=10),
-                **layout_updates,
-            )
-        )
-        return figure
-
-    figure = go.Figure()
-    for index, name in enumerate(names):
-        row = _row_for(year_frame, name)
-        if row is None:
-            continue
-        values = [float(row[column]) for column in SECTOR_COLUMNS]
-        figure.add_trace(
-            go.Scatterpolar(
-                r=values + [values[0]],
-                theta=labels_closed,
-                customdata=[_fmt_num(value) for value in values + [values[0]]],
-                mode="lines+markers",
-                name=name,
-                line=dict(color=COMPARE_COLORS[index % len(COMPARE_COLORS)], width=3 if index == 0 else 2),
-                marker=dict(size=6),
-                fill="toself" if index == 0 else None,
-                fillcolor="rgba(0, 120, 115, 0.08)" if index == 0 else None,
-                hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
-            )
-        )
-
-    figure.add_trace(
-        go.Scatterpolar(
-            r=state_values + [state_values[0]],
-            theta=labels_closed,
-            customdata=[_fmt_num(value) for value in state_values + [state_values[0]]],
-            mode="lines+markers",
-            name="Média do RS",
-            line=dict(color="#8a97a8", width=2, dash="dash"),
-            marker=dict(size=5),
-            hovertemplate="<b>%{fullData.name}</b><br>%{theta}: %{customdata}<extra></extra>",
-        )
-    )
-
-    figure.update_layout(
-        **_hover_layout(
-            height=470,
-            margin=dict(l=16, r=16, t=26, b=16),
-            polar=dict(
-                bgcolor="rgba(0,0,0,0)",
-                radialaxis=dict(
-                    range=[0, 10],
-                    tickvals=[0, 2.5, 5, 7.5, 10],
-                    tickfont=dict(size=10, color="#708095"),
-                    gridcolor="#dfe7ed",
-                ),
-                angularaxis=dict(
-                    tickfont=dict(size=11, color="#102542"),
-                    gridcolor="#dfe7ed",
-                ),
-            ),
-            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-            showlegend=True,
-        )
+        ),
+        legend=dict(
+            x=0.78,
+            y=0.92,
+            xanchor="left",
+            yanchor="top",
+            orientation="v",
+            bgcolor="rgba(255,255,255,0.92)",
+            bordercolor="#d8e1e8",
+            borderwidth=1,
+            font=dict(size=11, color="#102542"),
+            itemwidth=30,
+        ),
+        showlegend=True,
     )
     return figure
 
 
-def _variation_cell(value):
-    if value is None or pd.isna(value):
-        return html.Td("-")
-    class_name = "positive" if value > 0 else "negative" if value < 0 else ""
-    arrow = "↑ " if value > 0 else "↓ " if value < 0 else ""
-    return html.Td(f"{arrow}{_fmt_delta(value)}", className=class_name)
+def _current_indicator_rows(
+    category: str,
+    year,
+    region: str | None,
+    municipio: str | None,
+    category_data: pd.DataFrame | None = None,
+):
+    frame = (
+        category_data if category_data is not None else _safe_category_data(category)
+    )
+    if frame.empty or year is None or not region or not municipio:
+        return pd.DataFrame()
+
+    current = frame[
+        (frame["ano"] == int(year))
+        & (frame["regiao_funcional"] == region)
+        & (frame["municipio"] == municipio)
+    ].copy()
+    if current.empty:
+        return current
+    ranking_column = _indicator_rank_column(current)
+    return current.sort_values([ranking_column, "indicador"])
 
 
-def _comparison_table(year_frame, selected, comparisons, year):
-    names = _selected_names(selected, comparisons)[:3]
-    if year_frame.empty or not names:
-        return html.Div("Selecione um município para comparar indicadores.", className="empty-state")
-
-    previous_frame = _year_frame(year - 1) if year else pd.DataFrame()
-    header_top = [html.Th("Indicador", rowSpan=2)]
-    for name in names:
-        header_top.append(html.Th(name, colSpan=3))
-    header_top.append(html.Th("Média do RS", rowSpan=2))
-
-    header_bottom = []
-    for _ in names:
-        header_bottom.extend([html.Th("Nota (0-10)"), html.Th("Posição"), html.Th("Variação")])
-
-    rows = []
-    icon_map = {
-        "nota_educacao": "book",
-        "nota_financas": "coin",
-        "nota_meio_ambiente": "tree",
-        "nota_saude": "heart",
-        "nota_seguranca": "security",
-        "nota_socioeconomico": "users",
-        "nota_final": "trophy",
-    }
-    row_labels = {**SECTOR_LABELS, "nota_final": "Nota final"}
-
-    for column, label in row_labels.items():
-        cells = [
-            html.Td(
-                [_icon(icon_map[column], 16), html.Span(label)],
-                className="municipios-compare-indicator",
-            )
-        ]
-        for name in names:
-            row = _row_for(year_frame, name)
-            prev = _row_for(previous_frame, name)
-            if row is None:
-                cells.extend([html.Td("-"), html.Td("-"), html.Td("-")])
-                continue
-            if column == "nota_final":
-                position = _overall_rank(year_frame, row)
-            else:
-                position = _indicator_rank(year_frame, row, column)
-            delta = None
-            if prev is not None and column in prev:
-                delta = float(row[column] - prev[column])
-            cells.extend(
-                [
-                    html.Td(_fmt_num(row[column])),
-                    html.Td(_fmt_pos(position)),
-                    _variation_cell(delta),
-                ]
-            )
-        cells.append(html.Td(_state_average(year_frame, column)))
-        rows.append(html.Tr(cells, className="is-total" if column == "nota_final" else ""))
-
-    return html.Table(
-        [
-            html.Thead([html.Tr(header_top), html.Tr(header_bottom)]),
-            html.Tbody(rows),
-        ],
-        className="municipios-compare-table",
+def _indicator_rank_column(frame: pd.DataFrame) -> str:
+    return (
+        "ranking_indicador_desempatado"
+        if "ranking_indicador_desempatado" in frame.columns
+        else "ranking_indicador"
     )
 
 
-def _insights(year_frame, selected, comparisons, year):
-    names = _selected_names(selected, comparisons)
-    row = _row_for(year_frame, selected)
-    previous = _previous_row(selected, year)
-    if row is None:
-        return html.Div("Selecione um município para abrir os destaques.", className="empty-state")
-
-    best, worst = _best_and_worst(row)
-    better_count = 0
-    if len(names) > 1:
-        for column in SECTOR_COLUMNS:
-            current_value = float(row[column])
-            peer_values = []
-            for peer in names[1:]:
-                peer_row = _row_for(year_frame, peer)
-                if peer_row is not None:
-                    peer_values.append(float(peer_row[column]))
-            if peer_values and current_value >= max(peer_values):
-                better_count += 1
-
-    delta = None
-    if previous is not None:
-        delta = float(row["nota_final"] - previous["nota_final"])
-
-    items = [
-        ("trend", f"{selected} lidera em {better_count} indicadores dentro do conjunto comparado." if len(names) > 1 else f"{selected} é o município principal da comparação."),
-        ("star", f"Melhor indicador atual: {SECTOR_LABELS[best[0]]} com {_fmt_num(best[1])}." if best else "Sem destaque calculado."),
-        ("shield", f"Indicador mais frágil: {SECTOR_LABELS[worst[0]]} com {_fmt_num(worst[1])}." if worst else "Sem fragilidade calculada."),
-        ("line", f"Variação anual da nota final: {_fmt_delta(delta)}." if delta is not None else "Sem variação anual disponível."),
+def _indicator_options(current_rows: pd.DataFrame):
+    if current_rows.empty:
+        return []
+    return [
+        {
+            "label": _indicator_option_label(
+                _indicator_display_label(row["indicador"], row)
+            ),
+            "value": row["indicador"],
+        }
+        for _, row in current_rows.iterrows()
     ]
-    return html.Div(
-        [
-            html.Div(
-                [_icon(icon_name, 18), html.Div(text, className="municipios-insight-text")],
-                className="municipios-insight-item",
-            )
-            for icon_name, text in items
-        ],
-        className="municipios-insight-list",
+
+
+def _indicator_history(
+    category: str,
+    region,
+    municipio,
+    indicator,
+    category_data: pd.DataFrame | None = None,
+):
+    frame = (
+        category_data if category_data is not None else _safe_category_data(category)
     )
+    if frame.empty or not region or not municipio or not indicator:
+        return pd.DataFrame(), 0
+
+    region_indicator = frame[
+        (frame["regiao_funcional"] == region) & (frame["indicador"] == indicator)
+    ].copy()
+    history = region_indicator[region_indicator["municipio"] == municipio].sort_values(
+        "ano"
+    )
+    if "total_municipios_regiao" in history.columns:
+        max_value = history["total_municipios_regiao"].max()
+    else:
+        max_value = region_indicator.groupby("ano")["municipio"].nunique().max()
+    max_rank = int(max_value) if pd.notna(max_value) else 0
+    return history, max_rank
+
+
+def _indicator_history_figure(
+    category: str,
+    region,
+    municipio,
+    indicator,
+    category_data: pd.DataFrame | None = None,
+):
+    history, max_rank = _indicator_history(
+        category, region, municipio, indicator, category_data
+    )
+    if history.empty:
+        return _empty_figure(
+            "Selecione um indicador para ver o hist\u00f3rico.", height=260
+        )
+
+    figure = go.Figure()
+    ranking_column = _indicator_rank_column(history)
+    figure.add_trace(
+        go.Scatter(
+            x=history["ano"],
+            y=history[ranking_column],
+            mode="lines+markers+text",
+            text=[_fmt_pos(value) for value in history[ranking_column]],
+            customdata=[
+                [
+                    _fmt_indicator_observed_value(row["valor_original"], indicator),
+                    _fmt_num(row["nota_indicador"]),
+                    _fmt_pos(row.get("ranking_indicador")),
+                ]
+                for _, row in history.iterrows()
+            ],
+            textposition="top center",
+            line=dict(color=MUNICIPIO_ACCENT, width=3),
+            marker=dict(size=7, color=MUNICIPIO_ACCENT),
+            cliponaxis=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Posi\u00e7\u00e3o no indicador: %{text}<br>"
+                "Posi\u00e7\u00e3o original: %{customdata[2]}<br>"
+                "Valor Observado: %{customdata[0]}<br>"
+                "Nota: %{customdata[1]}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        height=254,
+        margin=dict(l=46, r=30, t=42, b=36),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            tickmode="linear", showgrid=False, color="#102542", tickfont=dict(size=10)
+        ),
+        yaxis=dict(
+            title=dict(text="Posi\u00e7\u00e3o", font=dict(size=11, color="#526277")),
+            autorange="reversed",
+            range=[max_rank + 6, 0] if max_rank else None,
+            showticklabels=True,
+            tickfont=dict(size=10, color="#526277"),
+            ticks="",
+            gridcolor="#e5ebef",
+            zeroline=False,
+            fixedrange=True,
+        ),
+        hoverlabel=dict(bgcolor="#ffffff", bordercolor="#dfe6ec"),
+        showlegend=False,
+    )
+    return figure
+
+
+def _indicator_value_history_figure(
+    category: str,
+    region,
+    municipio,
+    indicator,
+    category_data: pd.DataFrame | None = None,
+):
+    history, _ = _indicator_history(
+        category, region, municipio, indicator, category_data
+    )
+    if history.empty:
+        return _empty_figure("Selecione um indicador.", height=260)
+
+    display_values = [
+        _indicator_observed_display_value(value, indicator)
+        for value in history["valor_original"]
+    ]
+    formatted_values = [
+        _fmt_indicator_observed_value(value, indicator)
+        for value in history["valor_original"]
+    ]
+    is_percent = _is_percent_indicator(indicator)
+    y_axis_title = "Valor Observado (%)" if is_percent else "Valor Observado"
+    has_regional_average = bool(
+        "media_valor_original_regiao" in history.columns
+        and history["media_valor_original_regiao"].notna().any()
+    )
+    regional_average_values = []
+    formatted_regional_average_values = []
+    if has_regional_average:
+        regional_average_values = [
+            _indicator_observed_display_value(value, indicator)
+            for value in history["media_valor_original_regiao"]
+        ]
+        formatted_regional_average_values = [
+            _fmt_indicator_observed_value(value, indicator)
+            for value in history["media_valor_original_regiao"]
+        ]
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=history["ano"],
+            y=display_values,
+            mode="lines+markers+text",
+            name=str(municipio),
+            text=formatted_values,
+            customdata=formatted_values,
+            textposition="top center",
+            line=dict(color=MUNICIPIO_PRIMARY, width=3),
+            marker=dict(size=7, color=MUNICIPIO_PRIMARY),
+            cliponaxis=False,
+            showlegend=has_regional_average,
+            hovertemplate=(
+                "<b>%{x}</b><br>Valor Observado: %{customdata}<extra></extra>"
+            ),
+        )
+    )
+    if has_regional_average:
+        figure.add_trace(
+            go.Scatter(
+                x=history["ano"],
+                y=regional_average_values,
+                mode="lines+markers",
+                name=f"Média da {region}",
+                customdata=formatted_regional_average_values,
+                line=dict(color=MUNICIPIO_AVERAGE, width=2, dash="dot"),
+                marker=dict(size=6, color=MUNICIPIO_AVERAGE),
+                connectgaps=True,
+                showlegend=True,
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Média regional: %{customdata}<extra></extra>"
+                ),
+            )
+        )
+    figure.update_layout(
+        height=254,
+        margin=dict(l=54, r=32, t=42, b=36),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            tickmode="linear", showgrid=False, color="#102542", tickfont=dict(size=10)
+        ),
+        yaxis=dict(
+            title=dict(text=y_axis_title, font=dict(size=10, color="#526277")),
+            gridcolor="#e5ebef",
+            zeroline=False,
+            fixedrange=True,
+            tickfont=dict(size=10),
+            ticksuffix="%" if is_percent else "",
+            automargin=True,
+        ),
+        hoverlabel=dict(bgcolor="#ffffff", bordercolor="#dfe6ec"),
+        legend=dict(
+            orientation="h",
+            y=1.16,
+            x=1,
+            xanchor="right",
+            font=dict(size=10, color="#526277"),
+        ),
+        showlegend=has_regional_average,
+    )
+    return figure
 
 
 layout = html.Div(
@@ -609,105 +1328,50 @@ layout = html.Div(
             [
                 html.Div(
                     [
-                        html.Div(_icon("building", 46), className="municipios-hero-icon"),
+                        html.Div(
+                            _icon("buildings", 42), className="municipio-info-hero-icon"
+                        ),
                         html.Div(
                             [
-                                html.H1("Municípios", className="municipios-title"),
+                                html.H1(
+                                    "Informa\u00e7\u00f5es dos munic\u00edpios",
+                                    id="municipio-info-title",
+                                    className="municipio-info-title",
+                                ),
                                 html.P(
-                                    "Compare trajetórias, notas e perfis de indicadores entre municípios selecionados.",
-                                    className="municipios-subtitle",
+                                    "Acompanhe a posi\u00e7\u00e3o do munic\u00edpio dentro da sua regi\u00e3o funcional por categoria e por indicador.",
+                                    id="municipio-info-subtitle",
+                                    className="municipio-info-subtitle",
                                 ),
                             ],
-                            className="municipios-hero-copy",
+                            className="municipio-info-identity-copy",
                         ),
                     ],
-                    className="municipios-hero-head",
+                    className="municipio-info-identity-block",
                 ),
                 html.Div(
-                    [
-                        html.Div("Comparar com", className="filter-label"),
-                        dcc.Dropdown(
-                            id="municipios-compare",
-                            placeholder="Adicionar municípios",
-                            multi=True,
-                            className="filter-control",
-                        ),
-                    ],
-                    className="municipios-hero-compare",
+                    id="municipio-info-context", className="municipio-info-context"
                 ),
             ],
-            className="municipios-hero municipios-redesign-hero",
+            id="municipio-info-hero",
+            className="municipio-info-hero",
         ),
-        html.Section(id="municipios-selection-strip", className="municipios-selection-strip"),
         html.Section(
-            [
-                html.Article(
-                    [
-                        html.Div(_icon("trophy", 28), className="municipios-metric-icon"),
-                        html.Div(
-                            [
-                                html.Div("Nota final (2025)", id="municipio-score-title", className="municipios-metric-heading"),
-                                html.Div(id="municipio-score", className="municipios-metric-value"),
-                                html.Div(id="municipio-score-footnote", className="municipios-metric-footnote"),
-                            ]
-                        ),
-                    ],
-                    className="municipios-metric-card emphasis",
-                ),
-                html.Article(
-                    [
-                        html.Div(_icon("rank", 28), className="municipios-metric-icon"),
-                        html.Div(
-                            [
-                                html.Div("Posição geral (2025)", className="municipios-metric-heading"),
-                                html.Div(id="municipio-rank", className="municipios-metric-value"),
-                                html.Div(id="municipio-rank-footnote", className="municipios-metric-footnote"),
-                            ]
-                        ),
-                    ],
-                    className="municipios-metric-card",
-                ),
-                html.Article(
-                    [
-                        html.Div(_icon("trend", 28), className="municipios-metric-icon"),
-                        html.Div(
-                            [
-                                html.Div("Variação anual", className="municipios-metric-heading"),
-                                html.Div(id="municipio-delta", className="municipios-metric-value"),
-                                html.Div(id="municipio-delta-footnote", className="municipios-metric-footnote"),
-                            ]
-                        ),
-                    ],
-                    className="municipios-metric-card",
-                ),
-                html.Article(
-                    [
-                        html.Div(_icon("star", 28), className="municipios-metric-icon"),
-                        html.Div(
-                            [
-                                html.Div("Melhor indicador", className="municipios-metric-heading"),
-                                html.Div(id="municipio-best-label", className="municipios-metric-value small"),
-                                html.Div(id="municipio-best-value", className="municipios-metric-footnote"),
-                            ]
-                        ),
-                    ],
-                    className="municipios-metric-card",
-                ),
-                html.Article(
-                    [
-                        html.Div(_icon("shield", 28), className="municipios-metric-icon"),
-                        html.Div(
-                            [
-                                html.Div("Indicador mais frágil", className="municipios-metric-heading"),
-                                html.Div(id="municipio-weak-label", className="municipios-metric-value small"),
-                                html.Div(id="municipio-weak-value", className="municipios-metric-footnote"),
-                            ]
-                        ),
-                    ],
-                    className="municipios-metric-card",
-                ),
-            ],
-            className="municipios-metrics municipios-metrics-wide",
+            id="municipio-info-category-cards",
+            className="municipio-info-category-grid",
+            style={"display": "none"},
+        ),
+        html.Section(id="municipio-info-region-list"),
+        html.Div(
+            html.Button(
+                [_icon("arrow-left", 16), html.Span("Voltar para sele\u00e7\u00e3o")],
+                id="municipio-info-back-button",
+                className="municipio-info-back-button",
+                n_clicks=0,
+            ),
+            id="municipio-info-back-actions",
+            className="municipio-info-back-actions",
+            style={"display": "none"},
         ),
         html.Section(
             [
@@ -715,203 +1379,548 @@ layout = html.Div(
                     [
                         html.Div(
                             [
-                                html.Div([_icon("radar", 18), html.Span("Perfil de indicadores (2025)")], className="chart-title"),
-                                dcc.RadioItems(
-                                    id="municipio-radar-mode",
-                                    options=[
-                                        {"label": "Sobreposto", "value": "overlay"},
-                                        {"label": "Lado a lado", "value": "side_by_side"},
-                                    ],
-                                    value="overlay",
-                                    inline=True,
-                                    className="municipios-radar-mode",
-                                    inputClassName="municipios-radar-mode-input",
-                                    labelClassName="municipios-radar-mode-option",
-                                ),
+                                _icon("grid", 18),
+                                html.Span("Selecione a dimens\u00e3o"),
                             ],
-                            className="municipios-radar-header",
+                            className="selector-label",
                         ),
-                        dcc.Graph(id="municipio-radar", config={"displayModeBar": False}),
+                        dcc.RadioItems(
+                            id="municipio-info-category",
+                            options=[
+                                {
+                                    "label": _selector_option_label(
+                                        CATEGORY_ICONS.get(key, "circle"),
+                                        label,
+                                    ),
+                                    "value": key,
+                                }
+                                for key, label in CATEGORY_LABELS.items()
+                            ],
+                            value=CATEGORY_DEFAULT,
+                            inline=True,
+                            className="municipio-info-segmented",
+                            inputClassName="municipio-info-segmented-input",
+                            labelClassName="municipio-info-segmented-option",
+                        ),
                     ],
-                    className="chart-card municipios-radar-card",
+                    className="category-selector-container",
                 ),
+            ],
+            id="municipio-info-category-selector",
+            className="municipio-info-selector-section",
+            style={"display": "none"},
+        ),
+        html.Section(
+            [
                 html.Div(
                     [
                         html.Div(
                             [
-                                html.Div(id="municipio-trend-history-title", className="chart-title"),
                                 html.Div(
                                     [
-                                        html.Div(
-                                            [
-                                                html.Div("Visualização", className="municipios-trend-label"),
-                                                dcc.RadioItems(
-                                                    id="municipio-trend-mode",
-                                                    options=[
-                                                        {"label": "Nota", "value": "score"},
-                                                        {"label": "Posição", "value": "rank"},
-                                                    ],
-                                                    value="score",
-                                                    inline=True,
-                                                    className="municipios-radar-mode",
-                                                    inputClassName="municipios-radar-mode-input",
-                                                    labelClassName="municipios-radar-mode-option",
-                                                ),
-                                            ],
-                                            className="municipios-trend-filter municipios-trend-filter-radio",
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Div("Categoria", className="municipios-trend-label"),
-                                                dcc.Dropdown(
-                                                    id="municipio-trend-category",
-                                                    options=TREND_OPTIONS,
-                                                    value="nota_final",
-                                                    clearable=False,
-                                                    searchable=False,
-                                                    className="filter-control municipios-trend-select",
-                                                ),
-                                            ],
-                                            className="municipios-trend-filter",
+                                        _icon("columns-gap", 18),
+                                        html.Span(
+                                            "Hist\u00f3rico de posi\u00e7\u00e3o",
+                                            id="municipio-info-category-history-title",
                                         ),
                                     ],
-                                    className="municipios-trends-controls",
+                                    className="chart-title",
                                 ),
                             ],
-                            className="municipios-trends-header",
+                            className="municipio-info-panel-header",
                         ),
-                        dcc.Graph(id="municipio-trend-history", config={"displayModeBar": False}),
+                        dcc.Loading(
+                            id="municipio-chart-history-loading",
+                            type="circle",
+                            color=MUNICIPIO_PRIMARY,
+                            children=[
+                                dcc.Graph(
+                                    id="municipio-info-category-history",
+                                    config={"displayModeBar": False},
+                                ),
+                            ],
+                        ),
                     ],
-                    className="chart-card municipios-trends-card",
+                    className="chart-card municipio-info-panel",
+                ),
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        _icon("activity", 18),
+                                        html.Span(
+                                            "Notas da dimens\u00e3o",
+                                            id="municipio-info-category-radar-title",
+                                        ),
+                                    ],
+                                    className="chart-title",
+                                ),
+                            ],
+                            className="municipio-info-panel-header",
+                        ),
+                        dcc.Loading(
+                            id="municipio-chart-radar-loading",
+                            type="circle",
+                            color=MUNICIPIO_PRIMARY,
+                            children=[
+                                dcc.Graph(
+                                    id="municipio-info-category-radar",
+                                    config={"displayModeBar": False},
+                                ),
+                            ],
+                        ),
+                    ],
+                    className="chart-card municipio-info-panel",
                 ),
             ],
-            className="municipios-top-analytics",
+            id="municipio-info-main-grid",
+            className="municipio-info-main-grid",
+            style={"display": "none"},
         ),
         html.Section(
             [
                 html.Div(
                     [
-                        html.Div([_icon("table", 18), html.Span("Comparativo de indicadores (2025)")], className="chart-title"),
-                        html.Div(id="municipios-comparison-table", className="municipios-table-shell"),
+                        html.Div(
+                            [
+                                _icon("activity", 18),
+                                html.Span("Selecione o indicador"),
+                            ],
+                            className="selector-label",
+                        ),
+                        html.Div(
+                            [
+                                dcc.RadioItems(
+                                    id="municipio-info-indicator",
+                                    options=[],
+                                    value=None,
+                                    inline=True,
+                                    className="municipio-info-segmented indicator-pills municipio-info-indicator-pills",
+                                    inputClassName="municipio-info-segmented-input",
+                                    labelClassName="municipio-info-segmented-option municipio-info-indicator-chip",
+                                ),
+                                dcc.Dropdown(
+                                    id="municipio-info-indicator-more",
+                                    options=[],
+                                    value=None,
+                                    clearable=False,
+                                    searchable=False,
+                                    placeholder="Mais indicadores",
+                                    className="municipio-info-more-dropdown",
+                                    style={"display": "none"},
+                                ),
+                            ],
+                            className="indicator-selector-row",
+                        ),
                     ],
-                    className="chart-card municipios-compare-card",
+                    className="indicator-selector-container",
                 ),
             ],
-            className="municipios-bottom-grid",
+            id="municipio-info-indicator-selector",
+            className="municipio-info-selector-section",
+            style={"display": "none"},
+        ),
+        html.Section(
+            [
+                html.Div(
+                    [
+                        html.Div(
+                            "Hist\u00f3rico de posi\u00e7\u00e3o no indicador",
+                            id="municipio-info-indicator-history-title",
+                            className="chart-title",
+                        ),
+                        dcc.Loading(
+                            id="municipio-indicator-history-loading",
+                            type="circle",
+                            color=MUNICIPIO_PRIMARY,
+                            children=[
+                                dcc.Graph(
+                                    id="municipio-info-indicator-history",
+                                    config={"displayModeBar": False},
+                                ),
+                            ],
+                        ),
+                    ],
+                    className="chart-card municipio-info-panel",
+                ),
+                html.Div(
+                    [
+                        html.Div(
+                            "Valor Observado do indicador no tempo",
+                            id="municipio-info-indicator-value-title",
+                            className="chart-title",
+                        ),
+                        dcc.Loading(
+                            id="municipio-indicator-value-loading",
+                            type="circle",
+                            color=MUNICIPIO_PRIMARY,
+                            children=[
+                                dcc.Graph(
+                                    id="municipio-info-indicator-value-history",
+                                    config={"displayModeBar": False},
+                                ),
+                            ],
+                        ),
+                    ],
+                    className="chart-card municipio-info-panel",
+                ),
+            ],
+            id="municipio-info-lower-grid",
+            className="municipio-info-main-grid lower",
+            style={"display": "none"},
         ),
     ],
-    className="page municipios-page municipios-redesign",
+    className="page municipio-info-page",
 )
 
 
 @callback(
-    Output("municipios-compare", "options"),
-    Output("municipios-compare", "value"),
-    Input("filter-ano", "value"),
-    Input("filter-municipio", "value"),
-    State("municipios-compare", "value"),
+    Output("filter-ano", "value", allow_duplicate=True),
+    Output("filter-regiao", "value", allow_duplicate=True),
+    Output("filter-corede", "value", allow_duplicate=True),
+    Output("filter-municipio", "value", allow_duplicate=True),
+    Input("app-location", "search"),
+    State("app-location", "pathname"),
+    prevent_initial_call=True,
 )
-def update_compare_options(year, selected_municipio, current_compare):
-    frame = _year_frame(year)
-    municipalities = sorted(frame["municipio"].dropna().astype(str).unique()) if not frame.empty else []
-    compare_options = [municipio for municipio in municipalities if municipio != selected_municipio]
-    compare_values = [value for value in (current_compare or []) if value in compare_options][:3]
-    return _municipio_options(compare_options), compare_values
-
-
-@callback(
-    Output("municipios-selection-strip", "children"),
-    Output("municipio-score", "children"),
-    Output("municipio-score-footnote", "children"),
-    Output("municipio-rank", "children"),
-    Output("municipio-rank-footnote", "children"),
-    Output("municipio-delta", "children"),
-    Output("municipio-delta-footnote", "children"),
-    Output("municipio-best-label", "children"),
-    Output("municipio-best-value", "children"),
-    Output("municipio-weak-label", "children"),
-    Output("municipio-weak-value", "children"),
-    Output("municipio-radar", "figure"),
-    Output("municipio-trend-history-title", "children"),
-    Output("municipio-trend-history", "figure"),
-    Output("municipios-comparison-table", "children"),
-    Input("filter-ano", "value"),
-    Input("filter-municipio", "value"),
-    Input("municipios-compare", "value"),
-    Input("municipio-radar-mode", "value"),
-    Input("municipio-trend-mode", "value"),
-    Input("municipio-trend-category", "value"),
-)
-def update_municipios_page(year, selected_municipio, comparisons, radar_mode, trend_mode, trend_category):
-    frame = _year_frame(year)
-    comparisons = comparisons or []
-    selected_row = _row_for(frame, selected_municipio)
-    previous_row = _previous_row(selected_municipio, year)
-
-    strip_names = _selected_names(selected_municipio, comparisons)
-    strip_rows = [_row_for(frame, name) for name in strip_names]
-    strip_children = [
-        _selection_card(row, COMPARE_COLORS[index % len(COMPARE_COLORS)], selected=index == 0)
-        for index, row in enumerate(strip_rows)
-        if row is not None
-    ]
-    if not strip_children:
-        strip_children = [
-            html.Div(
-                "Selecione um município principal no filtro superior para começar a comparação.",
-                className="empty-state",
-            )
-        ]
-    else:
-        while len(strip_children) < 4:
-            strip_children.append(_selection_placeholder_card())
-
-    if selected_row is None:
-        empty = _empty_figure("Selecione um município principal.")
+def apply_municipio_query_params(search, pathname):
+    if pathname != "/municipios" or not search:
         return (
-            strip_children,
-            "-",
-            "Selecione um município",
-            "-",
-            "Sem posição calculada",
-            "-",
-            "Sem histórico anterior",
-            "-",
-            "-",
-            "-",
-            "-",
-            empty,
-            empty,
-            "Evolução da nota final",
-            html.Div("Selecione um município para abrir o comparativo.", className="empty-state"),
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
         )
 
-    statewide_total = frame["municipio"].nunique()
-    score = _fmt_num(selected_row["nota_final"])
-    overall_rank = _overall_rank(frame, selected_row)
-    rank_text = _fmt_pos(overall_rank)
-    delta = None
-    if previous_row is not None and previous_row["nota_final"] is not None and not pd.isna(previous_row["nota_final"]):
-        delta = float(selected_row["nota_final"] - previous_row["nota_final"])
-    best, worst = _best_and_worst(selected_row)
-    trend_mode = trend_mode or "score"
-    trend_category = trend_category or "nota_final"
-    trend_title = _trend_history_title(trend_mode, trend_category)
+    params = parse_qs(search.lstrip("?"), keep_blank_values=True)
+
+    ano_value = dash.no_update
+    if "ano" in params:
+        raw_year = params.get("ano", [None])[0]
+        if raw_year:
+            try:
+                ano_value = int(raw_year)
+            except ValueError:
+                ano_value = dash.no_update
+
+    regiao_value = dash.no_update
+    if "regiao" in params:
+        regiao = params.get("regiao", [None])[0]
+        regiao_value = regiao or dash.no_update
+
+    if "corede" in params:
+        corede = params.get("corede", [None])[0]
+        corede_value = corede or None
+    else:
+        corede_value = dash.no_update
+
+    municipio_value = dash.no_update
+    if "municipio" in params:
+        municipio = params.get("municipio", [None])[0]
+        municipio_value = municipio or dash.no_update
+
+    return ano_value, regiao_value, corede_value, municipio_value
+
+
+@callback(
+    Output("filter-regiao", "value", allow_duplicate=True),
+    Input({"type": "municipio-overview-card", "region": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def select_region_from_summary(_clicks):
+    if not _clicks or not any(clicks for clicks in _clicks if clicks):
+        return dash.no_update
+
+    triggered = ctx.triggered_id
+    if isinstance(triggered, dict):
+        return triggered.get("region")
+    return dash.no_update
+
+
+@callback(
+    Output("municipio-info-indicator", "options"),
+    Output("municipio-info-indicator", "value"),
+    Output("municipio-info-indicator-more", "options"),
+    Output("municipio-info-indicator-more", "value"),
+    Output("municipio-info-indicator-more", "style"),
+    Input("filter-ano", "value"),
+    Input("filter-regiao", "value"),
+    Input("filter-municipio", "value"),
+    Input("municipio-info-category", "value"),
+    State("municipio-info-indicator", "value"),
+)
+def update_indicator_options(year, region, municipio, category, current_indicator):
+    category = category if category in CATEGORY_LABELS else CATEGORY_DEFAULT
+    selected_row, resolved_region = _selected_context(year, region, municipio)
+    if selected_row is None:
+        return [], None, [], None, {"display": "none"}
+
+    indicator_data = _safe_municipio_indicator_data(
+        category, resolved_region, selected_row["municipio"]
+    )
+    current_rows = _current_indicator_rows(
+        category, year, resolved_region, selected_row["municipio"], indicator_data
+    )
+
+    all_options = _indicator_options(current_rows)
+
+    values = [option["value"] for option in all_options]
+    value = (
+        current_indicator
+        if current_indicator in values
+        else (values[0] if values else None)
+    )
+    return all_options, value, [], None, {"display": "none"}
+
+
+@callback(
+    Output("municipio-info-context", "children"),
+    Output("municipio-info-title", "children"),
+    Output("municipio-info-subtitle", "children"),
+    Output("municipio-info-hero", "style"),
+    Output("municipio-info-category-cards", "children"),
+    Output("municipio-info-category-cards", "style"),
+    Output("municipio-info-region-list", "children"),
+    Output("municipio-info-region-list", "style"),
+    Output("municipio-info-back-actions", "style"),
+    Output("municipio-info-category-selector", "style"),
+    Output("municipio-info-main-grid", "style"),
+    Output("municipio-info-indicator-selector", "style"),
+    Output("municipio-info-lower-grid", "style"),
+    Output("municipio-info-category-history-title", "children"),
+    Output("municipio-info-category-radar-title", "children"),
+    Output("municipio-info-indicator-history-title", "children"),
+    Output("municipio-info-indicator-value-title", "children"),
+    Output("municipio-info-category-history", "figure"),
+    Output("municipio-info-category-radar", "figure"),
+    Output("municipio-info-indicator-history", "figure"),
+    Output("municipio-info-indicator-value-history", "figure"),
+    Input("filter-ano", "value"),
+    Input("filter-regiao", "value"),
+    Input("filter-corede", "value"),
+    Input("filter-municipio", "value"),
+    Input("municipio-info-category", "value"),
+    Input("municipio-info-indicator", "value"),
+)
+def update_municipio_info(year, region, corede, municipio, category, indicator):
+    selected_row, resolved_region = _selected_context(year, region, municipio)
+    if selected_row is None:
+        empty_figure = _empty_figure(
+            "Selecione um munic\u00edpio no filtro superior.", height=260
+        )
+        hero_style = {"display": "none"} if not region else {}
+        return (
+            html.Div(
+                "Selecione um ano e um munic\u00edpio para abrir a an\u00e1lise.",
+                className="municipio-info-context-empty",
+            ),
+            "Informa\u00e7\u00f5es dos munic\u00edpios",
+            "Acompanhe a posi\u00e7\u00e3o do munic\u00edpio dentro da sua regi\u00e3o funcional por categoria e por indicador.",
+            hero_style,
+            [],
+            {"display": "none"},
+            _region_municipalities_table(year, region, corede),
+            {},
+            {"display": "none"},
+            {"display": "none"},
+            {"display": "none"},
+            {"display": "none"},
+            {"display": "none"},
+            "Hist\u00f3rico de posi\u00e7\u00e3o",
+            "Notas da dimens\u00e3o",
+            "Hist\u00f3rico de posi\u00e7\u00e3o no indicador",
+            "Valor Observado do indicador no tempo",
+            empty_figure,
+            empty_figure,
+            empty_figure,
+            empty_figure,
+        )
+
+    municipio_name = str(selected_row["municipio"])
+    category = category if category in CATEGORY_LABELS else CATEGORY_DEFAULT
+
+    ranking = _safe_ranking_data()
+    previous_year = _previous_year(year, ranking)
+    current_positions = _safe_category_positions(year, resolved_region, None)
+    total_municipios = (
+        int(current_positions["municipio"].nunique())
+        if not current_positions.empty and "municipio" in current_positions.columns
+        else 0
+    )
+    previous_positions = (
+        _safe_category_positions(previous_year, resolved_region, None)
+        if previous_year is not None
+        else pd.DataFrame()
+    )
+    category_history_data = _safe_municipio_category_history(
+        category, resolved_region, municipio_name
+    )
+    indicator_data = _safe_municipio_indicator_data(
+        category, resolved_region, municipio_name
+    )
+
+    current_rows = (
+        _current_indicator_rows(
+            category, year, resolved_region, municipio_name, indicator_data
+        )
+        if not indicator_data.empty
+        else pd.DataFrame()
+    )
+    selected_indicator_rows = (
+        current_rows[current_rows["indicador"] == indicator]
+        if indicator and not current_rows.empty
+        else pd.DataFrame()
+    )
+    indicator_label = (
+        _indicator_display_label(indicator, selected_indicator_rows.iloc[0])
+        if indicator and not selected_indicator_rows.empty
+        else _indicator_label(indicator or "indicador")
+    )
+    category_label = CATEGORY_LABELS.get(category, _fmt_text(category))
+
+    context = html.Div(
+        [
+            html.Article(
+                [
+                    html.Div(
+                        "Desempenho no porte populacional",
+                        className="municipio-info-rank-label",
+                    ),
+                    html.Div(
+                        _classification_badge(
+                            selected_row.get("classificacao"),
+                            "municipio-info-classification municipio-info-classification--hero",
+                        ),
+                        className="municipio-info-performance-panel",
+                    ),
+                ],
+                className="municipio-info-context-card municipio-info-performance-card",
+            ),
+            html.Article(
+                [
+                    html.Div(
+                        f"Posi\u00e7\u00e3o geral na {resolved_region}",
+                        className="municipio-info-rank-label",
+                    ),
+                    html.Div(
+                        [
+                            html.Strong(
+                                _fmt_pos(selected_row.get("ranking_regiao_funcional"))
+                            ),
+                            html.Span(
+                                _icon("trophy", 26),
+                                className="municipio-info-rank-icon",
+                            ),
+                        ],
+                        className="municipio-info-rank-value",
+                    ),
+                ],
+                className="municipio-info-context-card municipio-info-position-card",
+            ),
+        ],
+        className="municipio-info-rank-panel",
+    )
+    title = [
+        municipio_name,
+        html.Div(
+            "Munic\u00edpio",
+            className="municipio-info-title-badge",
+        ),
+    ]
+    subtitle = [
+        html.Span(
+            f"{resolved_region} • {_fmt_text(selected_row.get('corede'))}",
+            className="municipio-info-subtitle-context",
+        ),
+    ]
+    if total_municipios > 0:
+        subtitle.append(
+            html.Span(
+                f"Posi\u00e7\u00f5es calculadas entre os {total_municipios} munic\u00edpios da {resolved_region}.",
+                className="municipio-info-subtitle-summary",
+            )
+        )
 
     return (
-        strip_children,
-        score,
-        str(selected_row["municipio"]),
-        rank_text,
-        f"entre {statewide_total} municípios",
-        _fmt_delta(delta),
-        f"{year - 1} → {year}" if year else "Variação anual",
-        SECTOR_LABELS[best[0]] if best else "-",
-        f"{_fmt_num(best[1])} / 10" if best else "-",
-        SECTOR_LABELS[worst[0]] if worst else "-",
-        f"{_fmt_num(worst[1])} / 10" if worst else "-",
-        _radar_figure(frame, selected_municipio, comparisons, radar_mode),
-        trend_title,
-        _trend_history_figure(selected_municipio, comparisons, trend_category, trend_mode),
-        _comparison_table(frame, selected_municipio, comparisons, year),
+        context,
+        title,
+        subtitle,
+        {},
+        _category_cards(
+            year,
+            resolved_region,
+            municipio_name,
+            category,
+            current_positions,
+            previous_positions,
+            previous_year,
+        ),
+        {},
+        html.Div(),
+        {"display": "none"},
+        {},
+        {},
+        {},
+        {},
+        {},
+        f"Hist\u00f3rico de posi\u00e7\u00e3o - {category_label}",
+        f"Notas da dimens\u00e3o - {category_label}",
+        f"Hist\u00f3rico de posi\u00e7\u00e3o - {indicator_label}",
+        f"Valor Observado - {indicator_label}",
+        _category_history_figure(
+            category, resolved_region, municipio_name, category_history_data
+        ),
+        _category_radar_figure(
+            category, year, resolved_region, municipio_name, indicator_data
+        ),
+        _indicator_history_figure(
+            category, resolved_region, municipio_name, indicator, indicator_data
+        ),
+        _indicator_value_history_figure(
+            category, resolved_region, municipio_name, indicator, indicator_data
+        ),
     )
+
+
+@callback(
+    Output("filter-municipio", "value", allow_duplicate=True),
+    Output("filter-corede", "value", allow_duplicate=True),
+    Input({"type": "municipio-info-row", "municipio": ALL, "corede": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def select_municipio_from_region_table(_clicks):
+    if not _clicks or not any(clicks for clicks in _clicks if clicks):
+        return dash.no_update, dash.no_update
+
+    triggered = ctx.triggered_id
+    if isinstance(triggered, dict):
+        return triggered.get("municipio"), triggered.get("corede")
+    return dash.no_update, dash.no_update
+
+
+@callback(
+    Output("filter-municipio", "value", allow_duplicate=True),
+    Input("municipio-info-back-button", "n_clicks"),
+    prevent_initial_call=True,
+)
+def back_to_municipio_selection(n_clicks):
+    if not n_clicks:
+        return dash.no_update
+    return None
+
+
+@callback(
+    Output("municipio-info-category", "value"),
+    Input({"type": "category-card", "category": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def select_category_from_card(_clicks):
+    if not _clicks or not any(clicks for clicks in _clicks if clicks):
+        return dash.no_update
+
+    triggered = ctx.triggered_id
+    if isinstance(triggered, dict):
+        return triggered.get("category")
+    return dash.no_update

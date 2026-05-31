@@ -35,9 +35,13 @@ def _icon(name: str, size: int = 31):
         "trend": "bi-graph-up-arrow",
         "map": "bi-map",
         "pin": "bi-geo-alt",
-        "gauge": "bi-speedometer2",
+        "check": "bi-check-circle",
+        "list": "bi-list-check",
     }
-    return html.I(className=f"bi {classes.get(name, classes['home'])}", style={"fontSize": f"{size}px"})
+    return html.I(
+        className=f"bi {classes.get(name, classes['home'])}",
+        style={"fontSize": f"{size}px"},
+    )
 
 
 def _summary():
@@ -63,52 +67,95 @@ def _summary():
     }
 
 
-def _stat(icon_name, value, label, note, orange=False):
+def _metric(icon_name, value, label, note, orange=False):
     return html.Article(
         [
-            html.Div(_icon(icon_name), className=f"circle-icon{' orange' if orange else ''}"),
+            html.Div(
+                _icon(icon_name),
+                className=f"home-metric-icon{' is-orange' if orange else ''}",
+            ),
             html.Div(
                 [
-                    html.Div(value, className=f"stat-value{' orange-value' if orange else ''}"),
-                    html.Div(label, className="stat-label"),
-                    html.Div(note, className="stat-note"),
-                ]
+                    html.Div(
+                        value,
+                        className=f"home-metric-value{' is-orange' if orange else ''}",
+                    ),
+                    html.Div(label, className="home-metric-label"),
+                    html.Div(note, className="home-metric-note"),
+                ],
+                className="home-metric-copy",
             ),
         ],
-        className="soft-card stat-card",
+        className="home-metric-card",
     )
 
 
 def _objective(icon_name, title, text):
     return html.Article(
         [
-            html.Div(_icon(icon_name), className="circle-icon"),
-            html.Div([html.Div(title, className="card-title"), html.Div(text, className="card-text")]),
+            html.Div(_icon(icon_name), className="home-objective-icon"),
+            html.Div(
+                [
+                    html.H3(title, className="home-card-title"),
+                    html.P(text, className="home-card-text"),
+                ]
+            ),
         ],
-        className="soft-card objective-card",
+        className="home-objective-card",
     )
 
 
 def _step(number, icon_name, text):
-    return html.Div(
+    return html.Article(
         [
-            html.Span(str(number), className="step-num"),
-            html.Div(_icon(icon_name, 29), className="step-icon"),
-            html.Div(text, className="card-text"),
+            html.Span(str(number), className="home-step-number"),
+            html.Div(_icon(icon_name, 28), className="home-step-icon"),
+            html.P(text, className="home-step-text"),
         ],
-        className="soft-card step-card",
+        className="home-step-card",
     )
 
 
-def _find(icon_name, title, text):
+def _feature_card(icon_name, title, text, bullets, href, orange=False):
     return html.A(
         [
-            html.Div(_icon(icon_name), className="circle-icon small"),
-            html.Div([html.Div(title, className="card-title"), html.Div(text, className="card-text")]),
-            html.Span("›", className="chevron"),
+            html.Div(
+                _icon(icon_name),
+                className=f"home-feature-icon{' is-orange' if orange else ''}",
+            ),
+            html.Div(
+                [
+                    html.H3(
+                        title,
+                        className=f"home-feature-title{' is-orange' if orange else ''}",
+                    ),
+                    html.P(text, className="home-card-text"),
+                ],
+                className="home-feature-copy",
+            ),
+            html.Ul(
+                [html.Li(item) for item in bullets],
+                className=f"home-feature-list{' is-orange' if orange else ''}",
+            ),
         ],
-        href="/ranking-regional",
-        className="soft-card find-card",
+        href=href,
+        className=f"home-feature-card{' is-orange' if orange else ''}",
+    )
+
+
+def _hero_orbits():
+    return html.Div(
+        [
+            html.Span(className="home-orbit orbit-1"),
+            html.Span(className="home-orbit orbit-2"),
+            html.Span(className="home-orbit orbit-3"),
+            html.Span(className="home-orbit orbit-4"),
+            html.Span(className="home-orbit-dot dot-1"),
+            html.Span(className="home-orbit-dot dot-2"),
+            html.Span(className="home-orbit-dot dot-3"),
+        ],
+        className="home-radar-orbits",
+        **{"aria-hidden": "true"},
     )
 
 
@@ -116,54 +163,121 @@ def layout():
     summary = _summary()
     return html.Div(
         [
-            html.Div([_icon("home", 16), html.Span("Página inicial")], className="home-badge"),
-            html.H1(
-                "Painel de Indicadores dos Municípios do Rio Grande do Sul",
-                className="home-title",
-            ),
-            html.P(
-                "Explore, compare e acompanhe o desempenho dos municípios gaúchos em saúde, educação, segurança, finanças, meio ambiente e desenvolvimento socioeconômico.",
-                className="home-subtitle",
+            html.Section(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [_icon("home", 16), html.Span("Página inicial")],
+                                className="home-radar-badge",
+                            ),
+                            html.H1(
+                                "Radar dos Municípios do Rio Grande do Sul",
+                                className="home-radar-title",
+                            ),
+                            html.P(
+                                "Explore, compare e acompanhe o desempenho dos municípios gaúchos em saúde, educação, segurança, finanças, meio ambiente e desenvolvimento socioeconômico.",
+                                className="home-radar-subtitle",
+                            ),
+                        ],
+                        className="home-radar-copy",
+                    ),
+                    _hero_orbits(),
+                ],
+                className="home-radar-hero",
             ),
             html.Section(
                 [
-                    _stat("building", summary["municipios"], "municípios", "do Rio Grande do Sul"),
-                    _stat("state", summary["regioes"], "regiões funcionais", "de planejamento"),
-                    _stat("network", summary["coredes"], "Coredes", "Conselhos Regionais de Desenvolvimento"),
-                    _stat("calendar", summary["serie"], "Série histórica", f"{summary['anos']} anos de dados disponíveis", orange=True),
+                    _metric(
+                        "building",
+                        summary["municipios"],
+                        "municípios",
+                        "do Rio Grande do Sul",
+                    ),
+                    _metric(
+                        "state",
+                        summary["regioes"],
+                        "regiões funcionais",
+                        "de planejamento",
+                    ),
+                    _metric(
+                        "network",
+                        summary["coredes"],
+                        "Coredes",
+                        "Conselhos Regionais de Desenvolvimento",
+                    ),
+                    _metric(
+                        "calendar",
+                        summary["serie"],
+                        "Série histórica",
+                        f"{summary['anos']} anos de dados disponíveis",
+                        orange=True,
+                    ),
                 ],
-                className="stat-grid",
+                className="home-radar-metrics",
             ),
-            html.Div("Objetivo do dashboard", className="section-title"),
+            html.H2("Objetivo do painel", className="home-radar-section-title"),
             html.Section(
                 [
-                    _objective("users", "Comparar municípios", "Permite comparar o desempenho entre municípios em diferentes indicadores e dimensões."),
-                    _objective("bars", "Explorar diferenças regionais", "Evidencia desigualdades e potencialidades entre regiões funcionais e Coredes do estado."),
-                    _objective("trend", "Monitorar a evolução", "Acompanhe a evolução dos indicadores ao longo do tempo para apoiar decisões baseadas em evidências."),
+                    _objective(
+                        "bars",
+                        "Explorar recortes regionais",
+                        "Evidencia desigualdades e potencialidades entre regiões funcionais e Coredes do estado.",
+                    ),
+                    _objective(
+                        "trend",
+                        "Acompanhar a evolução",
+                        "Monitora os indicadores ao longo do tempo para apoiar decisões baseadas em evidências.",
+                    ),
                 ],
-                className="objective-grid",
+                className="home-objective-grid",
             ),
-            html.Div("Como navegar", className="section-title"),
+            html.H2("Como navegar", className="home-radar-section-title"),
             html.Section(
                 [
                     _step(1, "calendar", "Selecione o ano de análise."),
-                    html.Div("→", className="step-arrow"),
-                    _step(2, "pin", "Escolha a região funcional."),
-                    html.Div("→", className="step-arrow"),
-                    _step(3, "building", "Refine por Corede ou município."),
-                    html.Div("→", className="step-arrow"),
-                    _step(4, "trend", "Analise rankings, indicadores e evolução."),
+                    html.Div("→", className="home-step-arrow"),
+                    _step(2, "pin", "Escolha a região funcional ou o município."),
+                    html.Div("→", className="home-step-arrow"),
+                    _step(3, "building", "Explore os indicadores, notas e rankings."),
+                    html.Div("→", className="home-step-arrow"),
+                    _step(4, "trend", "Acompanhe a evolução e compare resultados."),
                 ],
-                className="steps-grid",
+                className="home-navigation-flow",
             ),
-            html.Div("O que você encontra aqui", className="section-title"),
+            html.H2(
+                "O que você encontra nas páginas", className="home-radar-section-title"
+            ),
             html.Section(
                 [
-                    _find("gauge", "Visão geral do estado", "Panorama dos principais indicadores do Rio Grande do Sul e suas comparações."),
-                    _find("map", "Análise por região funcional", "Compare indicadores, rankings e tendências entre as regiões funcionais."),
+                    _feature_card(
+                        "state",
+                        "Regiões funcionais",
+                        "Visão regional para comparar e entender o desempenho dos municípios.",
+                        [
+                            "Ranking dos municípios",
+                            "Média da região e por indicador",
+                            "Comparação entre municípios da região",
+                            "Detalhes do município selecionado",
+                        ],
+                        "/ranking-regional",
+                    ),
+                    _feature_card(
+                        "building",
+                        "Municípios",
+                        "Análise detalhada do desempenho de cada município ao longo do tempo.",
+                        [
+                            "Radar dos municípios",
+                            "Evolução por dimensão",
+                            "Histórico de posição",
+                            "Comparação com a região funcional",
+                        ],
+                        "/municipios",
+                        orange=True,
+                    ),
                 ],
-                className="find-grid",
+                className="home-feature-grid",
             ),
         ],
-        className="page home-page",
+        className="page home-page home-radar-page",
     )

@@ -1,16 +1,16 @@
-import unicodedata
 import os
+import re
+import unicodedata
 
 import dash
 import dash_bootstrap_components as dbc
 import plotly.io as pio
-from dash import Dash, Input, Output, State, callback, ctx, dcc, html, no_update
+from dash import Dash, Input, Output, State, callback, ctx, dcc, html
 
 from src.data_loader import (
     filter_ranking_data,
     get_default_year,
     load_anos,
-    load_regioes,
 )
 
 
@@ -46,14 +46,6 @@ def _safe_load_anos() -> list[int]:
         return []
 
 
-def _safe_load_regioes(year: int | None) -> list[str]:
-    try:
-        return load_regioes(year)
-    except Exception as exc:
-        print(f"Erro ao carregar regioes: {exc}")
-        return []
-
-
 def _safe_filter_frame(
     year: int | None, region: str | None = None, corede: str | None = None
 ):
@@ -67,22 +59,44 @@ def _safe_filter_frame(
         return None
 
 
-def _safe_load_coredes(year: int | None, region: str | None) -> list[str]:
-    if not region:
-        return []
-    frame = _safe_filter_frame(year, region)
-    if frame is None or frame.empty or "corede" not in frame.columns:
-        return []
-    return sorted(frame["corede"].replace("", None).dropna().astype(str).unique())
+def _region_sort_key(value: str) -> tuple[int, str]:
+    match = re.search(r"(\d+)", value or "")
+    if match:
+        return int(match.group(1)), value
+    return 999, value or ""
 
 
-def _safe_load_municipios(
-    year: int | None, region: str | None, corede: str | None
+def _region_options_from_frame(frame) -> list[str]:
+    if frame is None or frame.empty or "regiao_funcional" not in frame.columns:
+        return []
+    regions = frame["regiao_funcional"].dropna().astype(str).drop_duplicates().tolist()
+    return sorted(regions, key=_region_sort_key)
+
+
+def _corede_options_from_frame(frame, region: str | None) -> list[str]:
+    if (
+        not region
+        or frame is None
+        or frame.empty
+        or "corede" not in frame.columns
+        or "regiao_funcional" not in frame.columns
+    ):
+        return []
+    scoped = frame[frame["regiao_funcional"] == region]
+    return sorted(scoped["corede"].replace("", None).dropna().astype(str).unique())
+
+
+def _municipio_names_from_frame(
+    frame, region: str | None = None, corede: str | None = None
 ) -> list[str]:
-    frame = _safe_filter_frame(year, region, corede)
     if frame is None or frame.empty or "municipio" not in frame.columns:
         return []
-    return sorted(frame["municipio"].dropna().astype(str).unique())
+    scoped = frame
+    if region and "regiao_funcional" in scoped.columns:
+        scoped = scoped[scoped["regiao_funcional"] == region]
+    if corede and "corede" in scoped.columns:
+        scoped = scoped[scoped["corede"] == corede]
+    return sorted(scoped["municipio"].dropna().astype(str).unique())
 
 
 def _icon(name: str, size: int = 18):
@@ -106,7 +120,7 @@ def _icon(name: str, size: int = 18):
 
 
 def _logo():
-    return html.Span("u", className="brand-symbol")
+    return html.Img(src="/assets/logo_unisinos_white.png", className="brand-logo", alt="Unisinos")
 
 
 def _nav_item(label: str, href: str, icon_name: str, active="partial"):
@@ -139,10 +153,11 @@ def serve_layout():
     selected_year = (
         default_year if default_year in years else (years[0] if years else None)
     )
-    regions = _safe_load_regioes(selected_year)
+    year_frame = _safe_filter_frame(selected_year)
+    regions = _region_options_from_frame(year_frame)
     selected_region = None
-    coredes = _safe_load_coredes(selected_year, selected_region)
-    municipalities = _safe_load_municipios(selected_year, selected_region, None)
+    coredes = _corede_options_from_frame(year_frame, selected_region)
+    municipalities = _municipio_names_from_frame(year_frame, selected_region, None)
 
     return html.Div(
         [
@@ -150,7 +165,7 @@ def serve_layout():
             html.Header(
                 [
                     html.A(
-                        [_logo(), html.Span("Unisinos", className="brand-name")],
+                        _logo(),
                         href="/",
                         className="brand",
                     ),
@@ -158,6 +173,7 @@ def serve_layout():
                         [
                             _nav_item("Inicio", "/", "home", active="exact"),
                             _nav_item("Regiões funcionais", "/ranking-regional", "map"),
+                            _nav_item("Munic\u00edpios", "/municipios", "building"),
                         ],
                         className="nav",
                     ),
@@ -306,8 +322,9 @@ def update_filter_options(
     current_municipio,
 ):
     triggered = ctx.triggered_id
-    regions = _safe_load_regioes(selected_year)
-    is_municipios_page = False
+    year_frame = _safe_filter_frame(selected_year)
+    regions = _region_options_from_frame(year_frame)
+    is_municipios_page = pathname == "/municipios"
 
     if triggered == "clear-filters":
         region = None
@@ -315,22 +332,24 @@ def update_filter_options(
         municipio = None
     else:
         region = selected_region if selected_region in regions else None
-        coredes_for_region = _safe_load_coredes(selected_year, region)
+        coredes_for_region = _corede_options_from_frame(year_frame, region)
         corede = selected_corede if selected_corede in coredes_for_region else None
         municipios_for_scope = (
-            _safe_load_municipios(selected_year, None, None)
-            if is_municipios_page
-            else _safe_load_municipios(selected_year, region, corede)
+            _municipio_names_from_frame(year_frame)
+            if is_municipios_page and not region
+            else _municipio_names_from_frame(year_frame, region, corede)
         )
         municipio = (
             current_municipio if current_municipio in municipios_for_scope else None
         )
+        if is_municipios_page and not region:
+            municipio = None
 
-    coredes = _safe_load_coredes(selected_year, region)
+    coredes = _corede_options_from_frame(year_frame, region)
     municipalities = (
-        _safe_load_municipios(selected_year, None, None)
-        if is_municipios_page
-        else _safe_load_municipios(selected_year, region, corede)
+        _municipio_names_from_frame(year_frame)
+        if is_municipios_page and not region
+        else _municipio_names_from_frame(year_frame, region, corede)
     )
     if municipio not in municipalities:
         municipio = None
@@ -356,10 +375,10 @@ def update_filter_options(
 def update_shell_for_route(pathname, selected_region):
     if pathname == "/":
         return {"display": "none"}, "filters", "content-shell", "Município"
-    if pathname == "/ranking-regional" and not selected_region:
+    if pathname in ("/ranking-regional", "/municipios") and not selected_region:
         return {}, "filters filters-overview", "content-shell has-filters", "Município"
     return {}, "filters", "content-shell has-filters", "Município"
 
 
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=int(os.getenv("PORT", "8070")))
+    app.run(debug=False, host="127.0.0.1", port=int(os.getenv("PORT", "8070")))

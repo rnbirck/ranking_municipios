@@ -1,13 +1,14 @@
 import os
 import re
 import time
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, URL
 from supabase import create_client
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -25,6 +26,33 @@ SUPABASE_PAGE_SIZE = 1000
 EXPECTED_TABLE_SCHEMA = "public"
 EXPECTED_TABLE_NAME = "ranking_municipios"
 RANKING_QUERY_FILE = QUERIES_DIR / "ranking_municipios.sql"
+DEFAULT_INDICATOR_SUMMARY_FILE = (
+    BASE_DIR.parent
+    / "CEI"
+    / "cei"
+    / "ranking_municipios"
+    / "resultados"
+    / "resumo_indicadores_ranking_municipios_rs.xlsx"
+)
+CATEGORY_TABLES = {
+    "educacao": "base_educacao",
+    "financas": "base_financas",
+    "meio_ambiente": "base_meio_ambiente",
+    "saude": "base_saude",
+    "seguranca": "base_seguranca",
+    "socioeconomico": "base_socioeconomico",
+}
+DASH_MUNICIPIOS_RESUMO_TABLE = "dash_municipios_resumo"
+DASH_MUNICIPIO_CATEGORIA_HISTORICO_TABLE = "dash_municipio_categoria_historico"
+DASH_MUNICIPIO_INDICADORES_TABLE = "dash_municipio_indicadores"
+CATEGORY_LABELS = {
+    "educacao": "Educa\u00e7\u00e3o",
+    "financas": "Finan\u00e7as",
+    "meio_ambiente": "Meio ambiente",
+    "saude": "Sa\u00fade",
+    "seguranca": "Seguran\u00e7a",
+    "socioeconomico": "Socioecon\u00f4mico",
+}
 SECTOR_LABELS = {
     "nota_educacao": "Educação",
     "nota_financas": "Finanças",
@@ -66,15 +94,66 @@ def _current_cache_bucket() -> int:
     return int(time.time() // ttl_seconds)
 
 
+def _normalize_identifier(value: str) -> str:
+    ascii_value = (
+        unicodedata.normalize("NFKD", value)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    identifier = re.sub(r"[^a-z0-9]+", "_", ascii_value.strip().lower())
+    return re.sub(r"_+", "_", identifier).strip("_")
+
+
+def _resolve_indicator_summary_file() -> Path:
+    load_environment()
+    configured_path = (
+        os.getenv("INDICATOR_SUMMARY_FILE")
+        or os.getenv("RESUMO_INDICADORES_FILE")
+    )
+    if configured_path:
+        return Path(configured_path).expanduser().resolve()
+    return DEFAULT_INDICATOR_SUMMARY_FILE
+
+
+@lru_cache(maxsize=8)
+def _load_indicator_names_cached(cache_bucket: int) -> dict[str, str]:
+    path = _resolve_indicator_summary_file()
+    if not path.exists():
+        return {}
+
+    frame = pd.read_excel(path)
+    frame.columns = [_normalize_identifier(str(column)) for column in frame.columns]
+    if "indicador" not in frame.columns or "nome" not in frame.columns:
+        return {}
+
+    names = frame[["indicador", "nome"]].copy()
+    names["indicador"] = names["indicador"].fillna("").astype(str).str.strip()
+    names["nome"] = names["nome"].fillna("").astype(str).str.strip()
+    names = names[(names["indicador"] != "") & (names["nome"] != "")]
+    names = names.drop_duplicates("indicador")
+    return dict(zip(names["indicador"], names["nome"]))
+
+
+def load_indicator_names() -> dict[str, str]:
+    return _load_indicator_names_cached(_current_cache_bucket()).copy()
+
+
 def _build_engine(
     db_user: str, db_password: str, db_host: str, db_port: str, db_name: str
 ) -> Engine:
     return create_engine(
-        f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        URL.create(
+            "postgresql+psycopg2",
+            username=db_user,
+            password=db_password,
+            host=db_host,
+            port=int(db_port),
+            database=db_name,
+        )
     )
 
 
-def _has_expected_table(engine: Engine) -> bool:
+def _has_table(engine: Engine, table_name: str) -> bool:
     query = text(
         """
         SELECT 1
@@ -89,10 +168,14 @@ def _has_expected_table(engine: Engine) -> bool:
             query,
             {
                 "schema_name": EXPECTED_TABLE_SCHEMA,
-                "table_name": EXPECTED_TABLE_NAME,
+                "table_name": table_name,
             },
         )
         return result.scalar() is not None
+
+
+def _has_expected_table(engine: Engine) -> bool:
+    return _has_table(engine, EXPECTED_TABLE_NAME)
 
 
 def _resolve_engine() -> Engine:
@@ -143,35 +226,134 @@ def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
     return pd.read_sql_query(text(query), get_local_postgres_engine(), params=params)
 
 
-def _load_ranking_data_from_supabase_api() -> pd.DataFrame:
+def _read_table(table_name: str) -> pd.DataFrame:
+    try:
+        engine = get_local_postgres_engine()
+        if _has_table(engine, table_name):
+            return pd.read_sql_query(text(f"SELECT * FROM public.{table_name}"), engine)
+    except Exception as exc:
+        if not _has_supabase_api_config():
+            raise
+        print(
+            f"Banco direto indisponivel para public.{table_name}; "
+            f"usando API do Supabase. Detalhe: {exc}"
+        )
+
+    if _has_supabase_api_config():
+        return _load_table_from_supabase_api(table_name)
+    raise RuntimeError(
+        f"Tabela public.{table_name} nao encontrada no banco configurado."
+    )
+
+
+def _read_table_with_filters(
+    table_name: str,
+    columns: str = "*",
+    filters: dict | None = None,
+) -> pd.DataFrame:
+    filters = {key: value for key, value in (filters or {}).items() if value is not None}
+    try:
+        engine = get_local_postgres_engine()
+        if _has_table(engine, table_name):
+            where = ""
+            params = {}
+            if filters:
+                clauses = []
+                for index, (column, value) in enumerate(filters.items()):
+                    param = f"value_{index}"
+                    clauses.append(f"{column} = :{param}")
+                    params[param] = value
+                where = " WHERE " + " AND ".join(clauses)
+            return pd.read_sql_query(
+                text(f"SELECT {columns} FROM public.{table_name}{where}"),
+                engine,
+                params=params,
+            )
+    except Exception as exc:
+        if not _has_supabase_api_config():
+            raise
+        print(
+            f"Banco direto indisponivel para public.{table_name}; "
+            f"usando API do Supabase. Detalhe: {exc}"
+        )
+
+    if _has_supabase_api_config():
+        return _load_table_from_supabase_api(table_name, columns=columns, filters=filters)
+    raise RuntimeError(
+        f"Tabela public.{table_name} nao encontrada no banco configurado."
+    )
+
+
+def _load_table_from_supabase_api(
+    table_name: str,
+    columns: str = "*",
+    filters: dict | None = None,
+) -> pd.DataFrame:
     load_environment()
     supabase_url = require_env("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or require_env("SUPABASE_KEY")
+    supabase_key = os.getenv("SUPABASE_KEY") or require_env("SUPABASE_SERVICE_KEY")
     client = create_client(supabase_url, supabase_key)
 
     rows = []
     start = 0
     while True:
         end = start + SUPABASE_PAGE_SIZE - 1
-        response = (
-            client.table(EXPECTED_TABLE_NAME)
-            .select("*")
-            .range(start, end)
-            .execute()
-        )
+        query = client.table(table_name).select(columns)
+        for column, value in (filters or {}).items():
+            query = query.eq(column, value)
+        response = query.range(start, end).execute()
         batch = response.data or []
         rows.extend(batch)
         if len(batch) < SUPABASE_PAGE_SIZE:
             break
         start += SUPABASE_PAGE_SIZE
 
-    frame = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+
+
+def _load_ranking_data_from_supabase_api() -> pd.DataFrame:
+    frame = _load_table_from_supabase_api(EXPECTED_TABLE_NAME)
     if frame.empty:
         return frame
+    frame = _merge_regression_classification(frame)
     return frame.sort_values(
         ["ano", "regiao_funcional", "ranking_regiao_funcional", "municipio"],
         ascending=[False, True, True, True],
     )
+
+
+def _merge_regression_classification(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "classificacao" in frame.columns:
+        return frame
+
+    try:
+        predictions = _read_table_with_filters(
+            "regressao_rf_previsoes",
+            columns="id_municipio,municipio,ano,regiao_funcional,classificacao",
+        )
+    except Exception as exc:
+        print(f"Classificacao populacional indisponivel: {exc}")
+        return frame
+
+    if predictions.empty or "classificacao" not in predictions.columns:
+        return frame
+
+    key_candidates = [
+        ["id_municipio", "ano", "regiao_funcional"],
+        ["municipio", "ano", "regiao_funcional"],
+    ]
+    for keys in key_candidates:
+        if all(column in frame.columns and column in predictions.columns for column in keys):
+            lookup = (
+                predictions[keys + ["classificacao"]]
+                .dropna(subset=["classificacao"])
+                .drop_duplicates(keys)
+            )
+            if lookup.empty:
+                return frame
+            return frame.merge(lookup, on=keys, how="left")
+
+    return frame
 
 
 def _region_sort_key(value: str) -> tuple[int, str]:
@@ -183,18 +365,26 @@ def _region_sort_key(value: str) -> tuple[int, str]:
 
 def _normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
     normalized = frame.copy()
-    numeric_columns = ["ano", "ranking_regiao_funcional", "nota_final", *SECTOR_LABELS]
+    numeric_columns = [
+        "id_municipio",
+        "ano",
+        "ranking_regiao_funcional",
+        "nota_final",
+        *SECTOR_LABELS,
+    ]
     for column in numeric_columns:
         if column in normalized.columns:
             normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
 
-    text_columns = ["municipio", "regiao_funcional", "corede"]
+    text_columns = ["municipio", "regiao_funcional", "corede", "classificacao"]
     for column in text_columns:
         if column in normalized.columns:
             normalized[column] = normalized[column].fillna("").astype(str)
 
     if "ano" in normalized.columns:
         normalized["ano"] = normalized["ano"].astype("Int64")
+    if "id_municipio" in normalized.columns:
+        normalized["id_municipio"] = normalized["id_municipio"].astype("Int64")
     if "ranking_regiao_funcional" in normalized.columns:
         normalized["ranking_regiao_funcional"] = normalized[
             "ranking_regiao_funcional"
@@ -203,26 +393,134 @@ def _normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return normalized
 
 
-def _load_ranking_data_uncached() -> pd.DataFrame:
-    if not RANKING_QUERY_FILE.exists():
-        raise FileNotFoundError(f"Query nao encontrada: {RANKING_QUERY_FILE}")
+def _normalize_category_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    normalized = frame.copy()
+    numeric_columns = [
+        "id_municipio",
+        "ano",
+        "nota_indicador",
+        "ranking_indicador",
+        "ranking_indicador_desempatado",
+        "nota_dimensao",
+        "ranking_dimensao",
+        "valor_original",
+        "valor_usado_nota",
+        "media_nota_indicador_regiao",
+        "media_valor_original_regiao",
+        "total_municipios_regiao",
+    ]
+    for column in numeric_columns:
+        if column in normalized.columns:
+            normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+
+    text_columns = [
+        "municipio",
+        "regiao_funcional",
+        "corede",
+        "indicador",
+        "indicador_nome",
+        "categoria",
+        "dimensao",
+        "valor_imputado",
+    ]
+    for column in text_columns:
+        if column in normalized.columns:
+            normalized[column] = normalized[column].fillna("").astype(str)
+
+    for column in (
+        "id_municipio",
+        "ano",
+        "ranking_indicador",
+        "ranking_indicador_desempatado",
+        "ranking_dimensao",
+    ):
+        if column in normalized.columns:
+            normalized[column] = normalized[column].astype("Int64")
+
+    return normalized
+
+
+def _normalize_municipio_summary_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    normalized = _normalize_frame(frame)
+    numeric_columns = [
+        "id_municipio",
+        "total_municipios_regiao",
+        "ranking_educacao",
+        "ranking_anterior_educacao",
+        "ano_anterior_educacao",
+        "ranking_financas",
+        "ranking_anterior_financas",
+        "ano_anterior_financas",
+        "ranking_meio_ambiente",
+        "ranking_anterior_meio_ambiente",
+        "ano_anterior_meio_ambiente",
+        "ranking_saude",
+        "ranking_anterior_saude",
+        "ano_anterior_saude",
+        "ranking_seguranca",
+        "ranking_anterior_seguranca",
+        "ano_anterior_seguranca",
+        "ranking_socioeconomico",
+        "ranking_anterior_socioeconomico",
+        "ano_anterior_socioeconomico",
+    ]
+    for column in numeric_columns:
+        if column in normalized.columns:
+            normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+
+    integer_columns = [
+        "id_municipio",
+        "ano",
+        "ranking_regiao_funcional",
+        "total_municipios_regiao",
+        *[f"ranking_{category}" for category in CATEGORY_TABLES],
+        *[f"ranking_anterior_{category}" for category in CATEGORY_TABLES],
+        *[f"ano_anterior_{category}" for category in CATEGORY_TABLES],
+    ]
+    for column in integer_columns:
+        if column in normalized.columns:
+            normalized[column] = normalized[column].astype("Int64")
+    return normalized
+
+
+def _has_direct_database_config() -> bool:
     load_environment()
-    has_direct_database = bool(
+    return bool(
         os.getenv("DATABASE_URL")
         or os.getenv("SUPABASE_DB_URL")
         or os.getenv("SUPABASE_DATABASE_URL")
         or os.getenv("DB_USUARIO")
     )
-    has_supabase_api = bool(
+
+
+def _has_supabase_api_config() -> bool:
+    load_environment()
+    return bool(
         os.getenv("SUPABASE_URL")
         and (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY"))
     )
-    if not has_direct_database and has_supabase_api:
+
+
+def _load_ranking_data_uncached() -> pd.DataFrame:
+    if not RANKING_QUERY_FILE.exists():
+        raise FileNotFoundError(f"Query nao encontrada: {RANKING_QUERY_FILE}")
+    load_environment()
+    if not _has_direct_database_config() and _has_supabase_api_config():
         frame = _load_ranking_data_from_supabase_api()
         return _normalize_frame(frame)
 
     query = RANKING_QUERY_FILE.read_text(encoding="utf-8")
-    frame = _read_sql(query)
+    try:
+        frame = _read_sql(query)
+    except Exception as exc:
+        if not _has_supabase_api_config():
+            raise
+        print(
+            "Banco direto indisponivel para public.ranking_municipios; "
+            f"usando API do Supabase. Detalhe: {exc}"
+        )
+        frame = _load_ranking_data_from_supabase_api()
+    frame = _merge_regression_classification(frame)
     return _normalize_frame(frame)
 
 
@@ -236,6 +534,60 @@ def load_ranking_data() -> pd.DataFrame:
     if ttl_seconds <= 0:
         return _load_ranking_data_uncached().copy()
     return _load_ranking_data_cached(_current_cache_bucket()).copy()
+
+
+def _load_municipio_summary_uncached(
+    ano: int | None = None,
+    regiao_funcional: str | None = None,
+    corede: str | None = None,
+    municipio: str | None = None,
+) -> pd.DataFrame:
+    filters = {
+        "ano": int(ano) if ano is not None else None,
+        "regiao_funcional": regiao_funcional,
+        "corede": corede,
+        "municipio": municipio,
+    }
+    frame = _read_table_with_filters(DASH_MUNICIPIOS_RESUMO_TABLE, filters=filters)
+    if frame.empty:
+        return frame
+    return _normalize_municipio_summary_frame(frame).sort_values(
+        ["ano", "regiao_funcional", "ranking_regiao_funcional", "municipio"],
+        ascending=[False, True, True, True],
+    )
+
+
+@lru_cache(maxsize=256)
+def _load_municipio_summary_cached(
+    ano: int | None,
+    regiao_funcional: str | None,
+    corede: str | None,
+    municipio: str | None,
+    cache_bucket: int,
+) -> pd.DataFrame:
+    return _load_municipio_summary_uncached(
+        ano, regiao_funcional, corede, municipio
+    )
+
+
+def load_municipio_summary_data(
+    ano: int | None = None,
+    regiao_funcional: str | None = None,
+    corede: str | None = None,
+    municipio: str | None = None,
+) -> pd.DataFrame:
+    ttl_seconds = get_data_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return _load_municipio_summary_uncached(
+            ano, regiao_funcional, corede, municipio
+        ).copy()
+    return _load_municipio_summary_cached(
+        int(ano) if ano is not None else None,
+        regiao_funcional,
+        corede,
+        municipio,
+        _current_cache_bucket(),
+    ).copy()
 
 
 def filter_ranking_data(
@@ -254,6 +606,311 @@ def filter_ranking_data(
         frame = frame[frame["municipio"] == municipio]
 
     return frame.copy()
+
+
+def _load_category_data_uncached(category: str | None = None) -> pd.DataFrame:
+    if category is not None and category not in CATEGORY_TABLES:
+        raise ValueError(f"Categoria desconhecida: {category}")
+
+    try:
+        filters = {"categoria": category} if category else None
+        frame = _read_table_with_filters(
+            DASH_MUNICIPIO_INDICADORES_TABLE, filters=filters
+        )
+        if not frame.empty:
+            normalized = _normalize_category_frame(frame)
+            if "dimensao" not in normalized.columns and "categoria" in normalized.columns:
+                normalized["dimensao"] = normalized["categoria"]
+            return normalized
+    except Exception as exc:
+        print(
+            "Tabela derivada dash_municipio_indicadores indisponivel; "
+            f"usando bases originais. Detalhe: {exc}"
+        )
+
+    selected_categories = [category] if category else list(CATEGORY_TABLES)
+    frames = []
+
+    for selected_category in selected_categories:
+        table_name = CATEGORY_TABLES[selected_category]
+        if not _has_direct_database_config() and _has_supabase_api_config():
+            frame = _load_table_from_supabase_api(table_name)
+        else:
+            frame = _read_table(table_name)
+
+        if frame.empty:
+            continue
+        if "dimensao" not in frame.columns:
+            frame["dimensao"] = selected_category
+        frames.append(_normalize_category_frame(frame))
+
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+@lru_cache(maxsize=16)
+def _load_category_data_cached(category: str | None, cache_bucket: int) -> pd.DataFrame:
+    return _load_category_data_uncached(category)
+
+
+def load_category_data(category: str | None = None) -> pd.DataFrame:
+    normalized_category = category if category in CATEGORY_TABLES else None
+    ttl_seconds = get_data_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return _load_category_data_uncached(normalized_category).copy()
+    return _load_category_data_cached(
+        normalized_category, _current_cache_bucket()
+    ).copy()
+
+
+def _load_category_positions_uncached(
+    ano: int,
+    regiao_funcional: str,
+    corede: str | None = None,
+) -> pd.DataFrame:
+    try:
+        filters = {
+            "ano": int(ano),
+            "regiao_funcional": regiao_funcional,
+        }
+        if corede:
+            filters["corede"] = corede
+        frame = _read_table_with_filters(
+            DASH_MUNICIPIO_CATEGORIA_HISTORICO_TABLE,
+            columns="municipio,categoria,ranking_dimensao",
+            filters=filters,
+        )
+        if not frame.empty:
+            positions = frame.rename(columns={"categoria": "category"})
+            positions = positions[["category", "municipio", "ranking_dimensao"]].copy()
+            positions["municipio"] = positions["municipio"].fillna("").astype(str)
+            positions["category"] = positions["category"].fillna("").astype(str)
+            positions["ranking_dimensao"] = pd.to_numeric(
+                positions["ranking_dimensao"], errors="coerce"
+            ).astype("Int64")
+            return positions.drop_duplicates(["category", "municipio"])
+    except Exception as exc:
+        print(
+            "Tabela derivada dash_municipio_categoria_historico indisponivel; "
+            f"usando bases originais. Detalhe: {exc}"
+        )
+
+    frames = []
+    for category, table_name in CATEGORY_TABLES.items():
+        use_supabase_api = (
+            not _has_direct_database_config() and _has_supabase_api_config()
+        )
+        engine = None
+        if not use_supabase_api:
+            try:
+                engine = get_local_postgres_engine()
+                if not _has_table(engine, table_name):
+                    if not _has_supabase_api_config():
+                        raise RuntimeError(
+                            f"Tabela public.{table_name} nao encontrada no banco configurado."
+                        )
+                    use_supabase_api = True
+            except Exception as exc:
+                if not _has_supabase_api_config():
+                    raise
+                print(
+                    f"Banco direto indisponivel para public.{table_name}; "
+                    f"usando API do Supabase. Detalhe: {exc}"
+                )
+                use_supabase_api = True
+
+        if use_supabase_api:
+            filters = {
+                "ano": int(ano),
+                "regiao_funcional": regiao_funcional,
+            }
+            if corede:
+                filters["corede"] = corede
+            frame = _load_table_from_supabase_api(
+                table_name,
+                columns="municipio,ranking_dimensao",
+                filters=filters,
+            )
+        else:
+            where_corede = "AND corede = :corede" if corede else ""
+            query = f"""
+                SELECT
+                    municipio,
+                    MIN(ranking_dimensao) AS ranking_dimensao
+                FROM public.{table_name}
+                WHERE ano = :ano
+                  AND regiao_funcional = :regiao_funcional
+                  {where_corede}
+                GROUP BY municipio
+            """
+            params = {
+                "ano": int(ano),
+                "regiao_funcional": regiao_funcional,
+            }
+            if corede:
+                params["corede"] = corede
+            frame = pd.read_sql_query(text(query), engine, params=params)
+
+        if frame.empty:
+            continue
+        frame = frame[["municipio", "ranking_dimensao"]].copy()
+        frame["category"] = category
+        frames.append(frame.drop_duplicates(["category", "municipio"]))
+
+    if not frames:
+        return pd.DataFrame(columns=["category", "municipio", "ranking_dimensao"])
+
+    positions = pd.concat(frames, ignore_index=True)
+    positions["municipio"] = positions["municipio"].fillna("").astype(str)
+    positions["category"] = positions["category"].fillna("").astype(str)
+    positions["ranking_dimensao"] = pd.to_numeric(
+        positions["ranking_dimensao"], errors="coerce"
+    ).astype("Int64")
+    return positions
+
+
+@lru_cache(maxsize=128)
+def _load_category_positions_cached(
+    ano: int,
+    regiao_funcional: str,
+    corede: str | None,
+    cache_bucket: int,
+) -> pd.DataFrame:
+    return _load_category_positions_uncached(ano, regiao_funcional, corede)
+
+
+def load_category_positions(
+    ano: int | None,
+    regiao_funcional: str | None,
+    corede: str | None = None,
+) -> pd.DataFrame:
+    if ano is None or not regiao_funcional:
+        return pd.DataFrame(columns=["category", "municipio", "ranking_dimensao"])
+
+    ttl_seconds = get_data_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return _load_category_positions_uncached(
+            int(ano), regiao_funcional, corede
+        ).copy()
+    return _load_category_positions_cached(
+        int(ano), regiao_funcional, corede, _current_cache_bucket()
+    ).copy()
+
+
+def _load_municipio_category_history_uncached(
+    category: str,
+    regiao_funcional: str,
+    municipio: str,
+) -> pd.DataFrame:
+    frame = _read_table_with_filters(
+        DASH_MUNICIPIO_CATEGORIA_HISTORICO_TABLE,
+        filters={
+            "categoria": category,
+            "regiao_funcional": regiao_funcional,
+            "municipio": municipio,
+        },
+    )
+    if frame.empty:
+        return frame
+    normalized = _normalize_category_frame(frame)
+    if "dimensao" not in normalized.columns and "categoria" in normalized.columns:
+        normalized["dimensao"] = normalized["categoria"]
+    return normalized.sort_values("ano")
+
+
+@lru_cache(maxsize=512)
+def _load_municipio_category_history_cached(
+    category: str,
+    regiao_funcional: str,
+    municipio: str,
+    cache_bucket: int,
+) -> pd.DataFrame:
+    return _load_municipio_category_history_uncached(
+        category, regiao_funcional, municipio
+    )
+
+
+def load_municipio_category_history_data(
+    category: str,
+    regiao_funcional: str | None,
+    municipio: str | None,
+) -> pd.DataFrame:
+    if category not in CATEGORY_TABLES or not regiao_funcional or not municipio:
+        return pd.DataFrame()
+    ttl_seconds = get_data_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return _load_municipio_category_history_uncached(
+            category, regiao_funcional, municipio
+        ).copy()
+    return _load_municipio_category_history_cached(
+        category, regiao_funcional, municipio, _current_cache_bucket()
+    ).copy()
+
+
+def _load_municipio_indicator_data_uncached(
+    category: str,
+    regiao_funcional: str,
+    municipio: str,
+    indicador: str | None = None,
+) -> pd.DataFrame:
+    filters = {
+        "categoria": category,
+        "regiao_funcional": regiao_funcional,
+        "municipio": municipio,
+    }
+    if indicador:
+        filters["indicador"] = indicador
+    frame = _read_table_with_filters(
+        DASH_MUNICIPIO_INDICADORES_TABLE,
+        filters=filters,
+    )
+    if frame.empty:
+        return frame
+    normalized = _normalize_category_frame(frame)
+    if "dimensao" not in normalized.columns and "categoria" in normalized.columns:
+        normalized["dimensao"] = normalized["categoria"]
+    ranking_column = (
+        "ranking_indicador_desempatado"
+        if "ranking_indicador_desempatado" in normalized.columns
+        else "ranking_indicador"
+    )
+    return normalized.sort_values(["ano", ranking_column, "indicador"])
+
+
+@lru_cache(maxsize=512)
+def _load_municipio_indicator_data_cached(
+    category: str,
+    regiao_funcional: str,
+    municipio: str,
+    indicador: str | None,
+    cache_bucket: int,
+) -> pd.DataFrame:
+    return _load_municipio_indicator_data_uncached(
+        category, regiao_funcional, municipio, indicador
+    )
+
+
+def load_municipio_indicator_data(
+    category: str,
+    regiao_funcional: str | None,
+    municipio: str | None,
+    indicador: str | None = None,
+) -> pd.DataFrame:
+    if category not in CATEGORY_TABLES or not regiao_funcional or not municipio:
+        return pd.DataFrame()
+    ttl_seconds = get_data_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return _load_municipio_indicator_data_uncached(
+            category, regiao_funcional, municipio, indicador
+        ).copy()
+    return _load_municipio_indicator_data_cached(
+        category,
+        regiao_funcional,
+        municipio,
+        indicador,
+        _current_cache_bucket(),
+    ).copy()
 
 
 def load_anos() -> list[int]:
@@ -291,6 +948,15 @@ def get_sector_labels() -> dict[str, str]:
     return SECTOR_LABELS.copy()
 
 
+def get_category_labels() -> dict[str, str]:
+    return CATEGORY_LABELS.copy()
+
+
 def clear_data_cache() -> None:
     get_local_postgres_engine.cache_clear()
     _load_ranking_data_cached.cache_clear()
+    _load_municipio_summary_cached.cache_clear()
+    _load_category_data_cached.cache_clear()
+    _load_category_positions_cached.cache_clear()
+    _load_municipio_category_history_cached.cache_clear()
+    _load_municipio_indicator_data_cached.cache_clear()
