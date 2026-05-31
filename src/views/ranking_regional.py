@@ -6,7 +6,7 @@ import unicodedata
 import dash
 import pandas as pd
 import plotly.graph_objects as go
-from dash import ALL, Input, Output, State, callback, ctx, dash_table, dcc, html
+from dash import ALL, Input, Output, State, callback, clientside_callback, ctx, dash_table, dcc, html
 
 from src.data_loader import filter_ranking_data, get_sector_labels, load_ranking_data
 
@@ -1159,6 +1159,7 @@ layout = html.Div(
                                 ),
                             ],
                         ),
+                        html.Div(id="ranking-scroll-reset-dummy", style={"display": "none"}),
                     ],
                     className="ranking-card",
                 ),
@@ -1831,3 +1832,28 @@ def toggle_regional_sections(region, municipio):
         visible,
         hidden,
     )
+
+
+clientside_callback(
+    """
+    function(ano, regiao, corede, municipio, data) {
+        setTimeout(function() {
+            const container = document.querySelector('#ranking-table .dash-spreadsheet-container');
+            if (container) {
+                container.scrollTop = 0;
+            }
+            const inner = document.querySelector('#ranking-table .dash-spreadsheet-inner');
+            if (inner) {
+                inner.scrollTop = 0;
+            }
+        }, 80);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("ranking-scroll-reset-dummy", "children"),
+    Input("filter-ano", "value"),
+    Input("filter-regiao", "value"),
+    Input("filter-corede", "value"),
+    Input("filter-municipio", "value"),
+    Input("ranking-table", "data"),
+)

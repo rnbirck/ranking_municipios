@@ -1945,10 +1945,6 @@ body {
   display: none !important;
 }
 
-#ranking-table table.cell-table > tbody > tr:nth-child(2) {
-  display: none !important;
-}
-
 #ranking-table,
 #ranking-table * {
   user-select: none !important;
@@ -4819,26 +4815,26 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 /* ───────── refined selected-municipio card (overrides at end) ───────── */
 
 .regional-hero.municipality-compact {
-  min-height: 150px;
-  padding: 20px 24px;
+  min-height: 126px;
+  padding: 14px 20px;
   grid-template-columns:
-    minmax(360px, 1.05fr)
-    repeat(3, minmax(116px, 0.34fr))
-    minmax(540px, 1.55fr);
-  gap: 16px;
+    minmax(300px, 1.05fr)
+    repeat(3, minmax(96px, 0.25fr))
+    minmax(480px, 1.17fr);
+  gap: 12px;
   align-items: stretch;
 }
 
 .regional-hero.municipality-compact .selected-municipio {
   min-width: 0;
   max-width: 100%;
-  min-height: 112px;
-  padding: 14px 16px 12px;
+  min-height: 92px;
+  padding: 10px 12px;
   overflow: hidden;
 
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
 
   border: 1px solid rgba(0, 108, 103, 0.72);
@@ -4849,21 +4845,21 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 }
 
 .regional-hero.municipality-compact .selected-municipio .circle-icon {
-  width: 56px;
-  height: 56px;
-  min-width: 56px;
-  min-height: 56px;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  min-height: 46px;
 }
 
 .regional-hero.municipality-compact .selected-municipio > div:last-child {
   min-width: 0;
-  height: 100%;
 
   display: grid;
-  grid-template-columns: minmax(150px, 0.72fr) minmax(330px, 1.85fr);
-  grid-template-rows: auto 1fr auto;
-  gap: 5px 16px;
+  grid-template-columns: minmax(130px, 0.62fr) minmax(330px, 1.55fr);
+  grid-template-rows: auto auto auto;
+  gap: 3px 10px;
   align-items: center;
+  align-content: center;
 }
 
 .regional-hero.municipality-compact .selected-label {
@@ -4871,7 +4867,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   grid-row: 1;
 
   color: #526277;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 800;
   line-height: 1.1;
   white-space: nowrap;
@@ -4885,11 +4881,11 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   flex-wrap: wrap;
 
   color: #0b2544;
-  font-size: 1.05rem;
+  font-size: 0.96rem;
   font-weight: 900;
   line-height: 1.12;
 }
@@ -4903,14 +4899,14 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 }
 
 .regional-hero.municipality-compact .selected-corede {
-  max-width: 150px;
-  padding: 3px 8px;
+  max-width: 120px;
+  padding: 3px 7px;
 
   border-radius: 999px;
   color: var(--teal);
   background: #e6f3f1;
 
-  font-size: 0.6rem;
+  font-size: 0.56rem;
   font-weight: 900;
   line-height: 1;
 
@@ -4930,7 +4926,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 
 .regional-hero.municipality-compact .selected-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(72px, 1fr));
+  grid-template-columns: repeat(4, minmax(62px, 1fr));
   gap: 0;
   min-width: 0;
   align-items: stretch;
@@ -4938,40 +4934,44 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 
 .regional-hero.municipality-compact .selected-stats > div {
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 7px;
   border-left: 1px solid #dbe6e7;
 
   display: grid;
   align-content: center;
 }
 
+.regional-hero.municipality-compact .selected-stats > div:first-child {
+  border-left: 0;
+}
+
 .regional-hero.municipality-compact .selected-stat-value {
   color: var(--teal);
-  font-size: 1.22rem;
+  font-size: 1.06rem;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
 }
 
 .regional-hero.municipality-compact .selected-stat-label {
-  margin-top: 5px;
+  margin-top: 4px;
   color: #526277;
-  font-size: 0.63rem;
+  font-size: 0.56rem;
   font-weight: 700;
-  line-height: 1.15;
-  max-width: 86px;
+  line-height: 1.12;
+  max-width: none;
   white-space: normal;
 }
 
 .regional-hero.municipality-compact .classification-text,
 .regional-hero.municipality-compact .classification-badge {
   width: fit-content;
-  min-width: 64px;
-  min-height: 24px;
-  padding: 4px 10px;
+  min-width: 58px;
+  min-height: 22px;
+  padding: 4px 8px;
 
   border-radius: 7px;
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
@@ -4979,11 +4979,11 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 
 /* Ajuste fino do botão "Ver página completa" no card selecionado */
 .regional-hero.municipality-compact .selected-municipio-actions {
-  grid-column: 1 / -1;
+  grid-column: 2;
   grid-row: 3;
 
-  margin-top: 6px;
-  padding: 8px 10px 2px 0;
+  margin-top: 2px;
+  padding: 4px 2px 0 0;
   border-top: 1px solid rgba(0, 108, 103, 0.12);
 
   display: flex;
@@ -4993,8 +4993,8 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 }
 
 .regional-hero.municipality-compact .selected-municipio-link {
-  min-height: 30px;
-  padding: 0 13px;
+  min-height: 24px;
+  padding: 0 9px;
   gap: 7px;
 
   border: 1px solid rgba(0, 108, 103, 0.38);
@@ -5002,7 +5002,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   background: rgba(255, 255, 255, 0.82);
   color: var(--teal);
 
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   font-weight: 800;
   text-decoration: none;
   white-space: nowrap;
@@ -5016,7 +5016,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 }
 
 .regional-hero.municipality-compact .selected-municipio-link i {
-  font-size: 15px !important;
+  font-size: 13px !important;
 }
 
 .regional-hero.municipality-compact .selected-municipio-link:hover {
@@ -5030,31 +5030,31 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 @media (max-width: 1460px) {
   .regional-hero.municipality-compact {
     grid-template-columns:
-      minmax(340px, 1fr)
-      repeat(3, minmax(108px, 0.32fr))
-      minmax(500px, 1.45fr);
-    gap: 12px;
+      minmax(280px, 1fr)
+      repeat(3, minmax(90px, 0.24fr))
+      minmax(460px, 1.18fr);
+    gap: 10px;
   }
 
   .regional-hero.municipality-compact .selected-municipio > div:last-child {
-    grid-template-columns: minmax(140px, 0.7fr) minmax(300px, 1.75fr);
-    gap: 5px 12px;
+    grid-template-columns: minmax(120px, 0.6fr) minmax(300px, 1.5fr);
+    gap: 3px 8px;
   }
 
   .regional-hero.municipality-compact .selected-stats {
-    grid-template-columns: repeat(4, minmax(64px, 1fr));
+    grid-template-columns: repeat(4, minmax(58px, 1fr));
   }
 
   .regional-hero.municipality-compact .selected-stats > div {
-    padding: 0 9px;
+    padding: 0 6px;
   }
 
   .regional-hero.municipality-compact .selected-stat-value {
-    font-size: 1.1rem;
+    font-size: 0.98rem;
   }
 
   .regional-hero.municipality-compact .selected-stat-label {
-    font-size: 0.58rem;
+    font-size: 0.53rem;
   }
 }
 
@@ -5082,4 +5082,68 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   min-height: 48px;
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+@media (max-width: 1280px) {
+  .regional-hero.municipality-compact {
+    height: auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .regional-hero.municipality-compact .hero-title-block {
+    grid-column: 1 / -1;
+    grid-template-columns: 70px minmax(0, 1fr);
+  }
+
+  .regional-hero.municipality-compact .hero-metric,
+  .regional-hero.municipality-compact .selected-municipio {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .regional-hero.municipality-compact .selected-municipio {
+    grid-column: 1 / -1;
+    width: 100%;
+    padding: 12px 14px;
+  }
+
+  .regional-hero.municipality-compact .selected-municipio > div:last-child {
+    grid-template-columns: minmax(150px, 0.7fr) minmax(420px, 1.9fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .regional-hero.municipality-compact {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .regional-hero.municipality-compact .selected-municipio {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .regional-hero.municipality-compact .selected-municipio > div:last-child {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .regional-hero.municipality-compact .selected-label,
+  .regional-hero.municipality-compact .selected-name,
+  .regional-hero.municipality-compact .selected-meta,
+  .regional-hero.municipality-compact .selected-municipio-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .regional-hero.municipality-compact .selected-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 10px;
+  }
+
+  .regional-hero.municipality-compact .selected-stats > div:nth-child(odd) {
+    border-left: 0;
+  }
 }
