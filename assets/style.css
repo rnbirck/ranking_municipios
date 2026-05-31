@@ -1848,7 +1848,6 @@ body {
   align-items: stretch;
 }
 
-.dashboard-grid.municipality-selected .ranking-card,
 .dashboard-grid.municipality-selected .detail-card {
   height: 396px;
   min-height: 0;
@@ -1857,22 +1856,24 @@ body {
 }
 
 .dashboard-grid.municipality-selected .ranking-card {
+  height: 396px;
+  min-height: 0;
+  padding: 16px 24px 18px;
+  overflow: hidden !important;
   display: flex;
   flex-direction: column;
 }
 
 .dashboard-grid.municipality-selected #ranking-table {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
-}
-
-.dashboard-grid.municipality-selected .dash-table-container,
-.dashboard-grid.municipality-selected .dash-spreadsheet-container {
-  height: 100%;
+  width: 100%;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
 .dashboard-grid.municipality-selected .dash-spreadsheet-container {
-  max-height: 344px;
+  max-height: 310px !important;
 }
 
 .dashboard-grid.municipality-selected .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th,
@@ -4814,14 +4815,16 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 
 /* ───────── refined selected-municipio card (overrides at end) ───────── */
 
+/* Linha superior com município selecionado: sem média da nota final */
 .regional-hero.municipality-compact {
   min-height: 126px;
   padding: 14px 20px;
   grid-template-columns:
-    minmax(300px, 1.05fr)
-    repeat(3, minmax(96px, 0.25fr))
-    minmax(480px, 1.17fr);
-  gap: 12px;
+    minmax(360px, 1.1fr)
+    minmax(120px, 0.26fr)
+    minmax(105px, 0.24fr)
+    minmax(520px, 1.3fr);
+  gap: 14px;
   align-items: stretch;
 }
 
@@ -5027,12 +5030,18 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   text-decoration: none;
 }
 
+/* Esconde a média da nota final apenas quando há município selecionado */
+.regional-hero.municipality-compact .hero-metric:has(#metric-media) {
+  display: none !important;
+}
+
 @media (max-width: 1460px) {
   .regional-hero.municipality-compact {
     grid-template-columns:
-      minmax(280px, 1fr)
-      repeat(3, minmax(90px, 0.24fr))
-      minmax(460px, 1.18fr);
+      minmax(320px, 1fr)
+      minmax(100px, 0.24fr)
+      minmax(90px, 0.22fr)
+      minmax(480px, 1.25fr);
     gap: 10px;
   }
 
@@ -5146,4 +5155,49 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   .regional-hero.municipality-compact .selected-stats > div:nth-child(odd) {
     border-left: 0;
   }
+}
+
+/* ───────── barra horizontal da tabela de ranking dentro do card ───────── */
+
+.dashboard-grid.municipality-selected .ranking-card {
+  height: 396px;
+  min-height: 0;
+  padding: 16px 24px 18px;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-grid.municipality-selected #ranking-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+#ranking-table .dash-table-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden !important;
+}
+
+#ranking-table .dash-spreadsheet-container {
+  width: 100%;
+  max-width: 100%;
+  max-height: 310px !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e1e7ec;
+  scrollbar-gutter: stable;
+}
+
+#ranking-table .dash-spreadsheet-inner {
+  min-width: max-content;
+  padding-bottom: 4px;
+}
+
+#ranking-table table {
+  margin-bottom: 0;
 }
