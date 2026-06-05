@@ -227,7 +227,7 @@ def layout():
                     _objective(
                         "trend",
                         "Acompanhar a evolução",
-                        "Monitora os indicadores ao longo do tempo para apoiar decisões baseadas em evidências.",
+                        "Monitora os indicadores municipais ao longo do tempo.",
                     ),
                 ],
                 className="home-objective-grid",
