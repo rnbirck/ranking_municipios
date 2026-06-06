@@ -2472,7 +2472,9 @@ def _indicator_value_history_figure(
             .first()
         )
         if not mediana_por_ano.empty:
-            regional_median_series = history["ano"].map(mediana_por_ano)
+            regional_median_series = (
+                history["ano"].map(mediana_por_ano).reset_index(drop=True)
+            )
             median_source = "regional_medians"
     regional_years = sorted(mediana_por_ano.index.astype(int).tolist()) if mediana_por_ano is not None and not mediana_por_ano.empty else []
     nan_after_step1 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
@@ -2508,13 +2510,15 @@ def _indicator_value_history_figure(
                 .first()
             )
             if not specific_por_ano.empty:
-                specific_series = history["ano"].map(specific_por_ano)
+                specific_series = (
+                    history["ano"].map(specific_por_ano).reset_index(drop=True)
+                )
                 if regional_median_series is None:
                     regional_median_series = specific_series
                     median_source = "specific_indicator_medians"
                 else:
-                    regional_median_series = pd.Series(regional_median_series).fillna(
-                        pd.Series(specific_series.values, index=range(len(specific_series)))
+                    regional_median_series = regional_median_series.fillna(
+                        specific_series
                     )
                     median_source = "regional_medians+specific_indicator_medians"
                 specific_years = sorted(specific_por_ano.index.astype(int).tolist())
@@ -2533,10 +2537,10 @@ def _indicator_value_history_figure(
             .dropna(subset=["mediana_valor_original_regiao"])
             .set_index("ano")["mediana_valor_original_regiao"]
         )
-        fill_values = history["ano"].map(history_median_map)
-        regional_median_series = pd.Series(regional_median_series).fillna(
-            pd.Series(fill_values.values, index=range(len(fill_values)))
+        fill_values = (
+            history["ano"].map(history_median_map).reset_index(drop=True)
         )
+        regional_median_series = regional_median_series.fillna(fill_values)
         median_source += "+history_column"
     nan_after_step3 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
 
@@ -2563,13 +2567,13 @@ def _indicator_value_history_figure(
                 mediana_por_ano = region_indicator_frame.groupby("ano")[
                     "valor_original"
                 ].median()
-                fallback_series = history["ano"].map(mediana_por_ano)
+                fallback_series = (
+                    history["ano"].map(mediana_por_ano).reset_index(drop=True)
+                )
                 regional_median_series = (
                     fallback_series
                     if regional_median_series is None
-                    else pd.Series(regional_median_series).fillna(
-                        pd.Series(fallback_series.values, index=range(len(fallback_series)))
-                    )
+                    else regional_median_series.fillna(fallback_series)
                 )
                 median_source += "+fallback_category_data_legacy"
         _perf_elapsed("indicator_value.fallback_category_data_legacy", _t_fallback)
@@ -2578,7 +2582,9 @@ def _indicator_value_history_figure(
     if regional_median_series is not None:
         missing_mask = pd.Series(regional_median_series).isna()
         if missing_mask.any():
-            missing_after_all = sorted(history["ano"][missing_mask].astype(int).tolist())
+            missing_after_all = sorted(
+                y for y, is_missing in zip(history_years, missing_mask) if is_missing
+            )
 
     logger.debug(
         "[PERF] indicator_value.median_coverage: history_years=%s regional_years=%s specific_years=%s missing_after_all=%s",
