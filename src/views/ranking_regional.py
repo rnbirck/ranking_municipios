@@ -149,7 +149,7 @@ layout = html.Div(
                                     className="regional-title",
                                 ),
                                 html.P(
-                                    "Escolha uma região funcional no filtro acima para abrir a página de municípios da região.",
+                                    "Escolha uma região funcional no filtro acima para abrir o ranking dos municípios, os indicadores regionais e os detalhes por município.",
                                     className="regional-subtitle",
                                 ),
                             ],
@@ -270,7 +270,7 @@ layout = html.Div(
                                     className="summary-note-icon",
                                 ),
                                 html.Div(
-                                    "Selecione uma região para abrir a página de municípios correspondente."
+                                    "Selecione uma região para explorar o ranking dos municípios e os detalhes regionais."
                                 ),
                             ],
                             className="summary-note region-explore-note",
@@ -280,7 +280,7 @@ layout = html.Div(
                 ),
             ],
             id="region-overview",
-            className="region-overview",
+            className="region-overview municipio-region-overview",
         ),
     ],
     className="page regional-page",
