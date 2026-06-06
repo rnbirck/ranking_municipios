@@ -127,7 +127,7 @@ def _classification_status(value) -> str:
     )
     if "acima" in normalized:
         return "above"
-    if "baixo" in normalized or "abaixo" in normalized:
+    if "abaixo" in normalized or "baixo" in normalized:
         return "low"
     if "intervalo" in normalized or "dentro" in normalized or "esperado" in normalized:
         return "range"
@@ -270,7 +270,9 @@ def _indicator_key(value: str | None) -> str:
         .encode("ascii", "ignore")
         .decode("ascii")
     )
-    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", ascii_value.lower())).strip("_")
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", ascii_value.lower())).strip(
+        "_"
+    )
 
 
 def _normalize_sort_text(value) -> str:
@@ -376,7 +378,9 @@ def _indicator_specific_direction_subtitle(indicator: str | None) -> str | None:
     return INDICATOR_DIRECTION_SUBTITLE_MAP.get(key)
 
 
-def _indicator_direction_text(direction: str, indicator: str | None = None, row=None) -> str:
+def _indicator_direction_text(
+    direction: str, indicator: str | None = None, row=None
+) -> str:
     specific_text = _indicator_specific_direction_subtitle(indicator)
     if specific_text:
         return specific_text
@@ -2974,9 +2978,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         else pd.DataFrame()
     )
     selected_indicator_row = (
-        selected_indicator_rows.iloc[0]
-        if not selected_indicator_rows.empty
-        else None
+        selected_indicator_rows.iloc[0] if not selected_indicator_rows.empty else None
     )
     indicator_label = (
         _indicator_display_label(indicator, selected_indicator_row)
@@ -2984,10 +2986,10 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         else _indicator_label(indicator or "indicador")
     )
     indicator_direction = _indicator_direction(indicator, selected_indicator_row)
-    indicator_direction_subtitle = _indicator_direction_text(indicator_direction, indicator, selected_indicator_row)
-    indicator_direction_subtitle_class = (
-        f"indicator-direction-subtitle {_indicator_direction_class(indicator_direction)}"
+    indicator_direction_subtitle = _indicator_direction_text(
+        indicator_direction, indicator, selected_indicator_row
     )
+    indicator_direction_subtitle_class = f"indicator-direction-subtitle {_indicator_direction_class(indicator_direction)}"
     category_label = CATEGORY_SELECTOR_LABELS.get(category, _fmt_text(category))
 
     context = html.Div(

@@ -5915,7 +5915,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   color: #8a5a12 !important;
 }
 
-/* Baixo — texto vermelho */
+/* Abaixo — texto vermelho */
 #ranking-table td[data-dash-column="classificacao"][style*="color: rgb(180, 35, 45)"] .dash-cell-value,
 #ranking-table td[data-dash-column="classificacao"][style*="color: #b4232d"] .dash-cell-value {
   background: #fde8e8 !important;
