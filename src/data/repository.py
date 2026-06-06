@@ -45,6 +45,7 @@ CATEGORY_TABLES = {
 DASH_MUNICIPIOS_RESUMO_TABLE = "dash_municipios_resumo"
 DASH_MUNICIPIO_CATEGORIA_HISTORICO_TABLE = "dash_municipio_categoria_historico"
 DASH_MUNICIPIO_INDICADORES_TABLE = "dash_municipio_indicadores"
+MUNICIPIO_INDICADOR_MEDIANA_REGIAO_VIEW = "mv_municipio_indicador_mediana_regiao"
 CATEGORY_LABELS = {
     "educacao": "Educa\u00e7\u00e3o",
     "financas": "Finan\u00e7as",
@@ -407,6 +408,9 @@ def _normalize_category_frame(frame: pd.DataFrame) -> pd.DataFrame:
         "valor_usado_nota",
         "media_nota_indicador_regiao",
         "media_valor_original_regiao",
+        "mediana_nota_indicador_regiao",
+        "mediana_valor_original_regiao",
+        "total_municipios_mediana",
         "total_municipios_regiao",
     ]
     for column in numeric_columns:
@@ -438,6 +442,27 @@ def _normalize_category_frame(frame: pd.DataFrame) -> pd.DataFrame:
             normalized[column] = normalized[column].astype("Int64")
 
     return normalized
+
+
+def _normalize_indicator_regional_medians_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    normalized = _normalize_category_frame(frame)
+    expected_columns = [
+        "ano",
+        "regiao_funcional",
+        "categoria",
+        "indicador",
+        "mediana_nota_indicador_regiao",
+        "mediana_valor_original_regiao",
+        "total_municipios_mediana",
+    ]
+    for column in expected_columns:
+        if column not in normalized.columns:
+            normalized[column] = pd.NA
+    if "dimensao" not in normalized.columns and "categoria" in normalized.columns:
+        normalized["dimensao"] = normalized["categoria"]
+    return normalized.sort_values(
+        ["ano", "regiao_funcional", "categoria", "indicador"]
+    )
 
 
 def _normalize_municipio_summary_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -913,6 +938,62 @@ def load_municipio_indicator_data(
     ).copy()
 
 
+def _load_indicator_regional_medians_uncached(
+    category: str,
+    region: str | None = None,
+    year: int | None = None,
+    indicator: str | None = None,
+) -> pd.DataFrame:
+    filters = {
+        "categoria": category,
+        "regiao_funcional": region,
+        "ano": int(year) if year is not None else None,
+        "indicador": indicator,
+    }
+    frame = _read_table_with_filters(
+        MUNICIPIO_INDICADOR_MEDIANA_REGIAO_VIEW,
+        filters=filters,
+    )
+    if frame.empty:
+        return frame
+    return _normalize_indicator_regional_medians_frame(frame)
+
+
+@lru_cache(maxsize=512)
+def _load_indicator_regional_medians_cached(
+    category: str,
+    region: str | None,
+    year: int | None,
+    indicator: str | None,
+    cache_bucket: int,
+) -> pd.DataFrame:
+    return _load_indicator_regional_medians_uncached(
+        category, region, year, indicator
+    )
+
+
+def load_indicator_regional_medians(
+    category: str,
+    region: str | None = None,
+    year: int | None = None,
+    indicator: str | None = None,
+) -> pd.DataFrame:
+    if category not in CATEGORY_TABLES:
+        return pd.DataFrame()
+    ttl_seconds = get_data_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return _load_indicator_regional_medians_uncached(
+            category, region, year, indicator
+        ).copy()
+    return _load_indicator_regional_medians_cached(
+        category,
+        region,
+        int(year) if year is not None else None,
+        indicator,
+        _current_cache_bucket(),
+    ).copy()
+
+
 def load_anos() -> list[int]:
     frame = load_ranking_data()
     if frame.empty or "ano" not in frame.columns:
@@ -960,3 +1041,4 @@ def clear_data_cache() -> None:
     _load_category_positions_cached.cache_clear()
     _load_municipio_category_history_cached.cache_clear()
     _load_municipio_indicator_data_cached.cache_clear()
+    _load_indicator_regional_medians_cached.cache_clear()

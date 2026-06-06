@@ -1,11 +1,15 @@
 import os
 import re
 import unicodedata
+import logging
+from urllib.parse import parse_qs
 
 import dash
 import dash_bootstrap_components as dbc
 import plotly.io as pio
 from dash import Dash, Input, Output, State, callback, ctx, dcc, html
+
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 from src.data_loader import (
     filter_ranking_data,
@@ -161,7 +165,7 @@ def serve_layout():
 
     return html.Div(
         [
-            dcc.Location(id="app-location", refresh=False),
+            dcc.Location(id="app-location", refresh="callback-nav"),
             html.Header(
                 [
                     html.A(
@@ -310,6 +314,7 @@ app.layout = serve_layout
     Input("filter-regiao", "value"),
     Input("filter-corede", "value"),
     Input("app-location", "pathname"),
+    Input("app-location", "search"),
     Input("clear-filters", "n_clicks"),
     State("filter-municipio", "value"),
 )
@@ -318,6 +323,7 @@ def update_filter_options(
     selected_region,
     selected_corede,
     pathname,
+    search,
     clear_clicks,
     current_municipio,
 ):
@@ -325,12 +331,26 @@ def update_filter_options(
     year_frame = _safe_filter_frame(selected_year)
     regions = _region_options_from_frame(year_frame)
     is_municipios_page = pathname == "/municipios"
+    query_region = None
+    query_corede = None
+    query_municipio = None
+
+    if is_municipios_page and search:
+        params = parse_qs(search.lstrip("?"), keep_blank_values=True)
+        query_region = params.get("regiao", [None])[0] or None
+        query_corede = params.get("corede", [None])[0] or None
+        query_municipio = params.get("municipio", [None])[0] or None
 
     if triggered == "clear-filters":
         region = None
         corede = None
         municipio = None
     else:
+        if triggered in (None, "app-location", "filter-ano") and query_region:
+            selected_region = query_region
+            selected_corede = query_corede
+            current_municipio = query_municipio
+
         region = selected_region if selected_region in regions else None
         coredes_for_region = _corede_options_from_frame(year_frame, region)
         corede = selected_corede if selected_corede in coredes_for_region else None

@@ -1999,7 +1999,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  white-space: nowrap;
+  white-space: normal !important;
+  line-height: 1.15;
+  text-align: center;
 }
 
 #ranking-table th[data-dash-column="classificacao"] .column-header-name::after {
@@ -2007,15 +2009,16 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
-  border: 1.5px solid #7fa4a0;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  border: 1.5px solid #007873;
   border-radius: 50%;
-  color: #006c67;
   background: #f4fbfa;
-  font-size: 0.62rem;
-  font-weight: 800;
+  color: #007873;
   font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  font-size: 0.66rem;
+  font-weight: 900;
   line-height: 1;
   cursor: help;
   transform: translateY(-1px);
@@ -2033,15 +2036,16 @@ body {
 }
 
 #ranking-table td[data-dash-column="classificacao"] .dash-cell-value {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 110px;
-  min-height: 26px;
-  padding: 4px 12px;
-  border-radius: 7px;
-  font-size: 0.78rem;
-  font-weight: 800;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 210px;
+  max-width: 250px;
+  min-height: 28px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 900;
   line-height: 1.1;
   white-space: nowrap;
 }
@@ -2054,6 +2058,11 @@ body {
 #ranking-table td[data-dash-column="classificacao"][style*="background-color: rgb(255, 243, 207)"] .dash-cell-value {
   background: #fff3cf !important;
   color: #8a5a12 !important;
+}
+
+#ranking-table td[data-dash-column="classificacao"][style*="background-color: rgb(253, 232, 232)"] .dash-cell-value {
+  background: #fde8e8 !important;
+  color: #b4232d !important;
 }
 
 #ranking-table td[data-dash-column="classificacao"][style*="background-color: rgb(253, 232, 232)"] .dash-cell-value {
@@ -2280,15 +2289,32 @@ body {
 .dash-table-container th[data-dash-column="classificacao"] .column-header-name {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 7px;
+  white-space: normal !important;
+  line-height: 1.15;
+  text-align: center;
   cursor: help;
 }
 
 .dash-table-container th[data-dash-column="classificacao"] .column-header-name::after {
-  content: "ⓘ";
-  color: #5d6b7e;
-  font-size: 0.72rem;
-  font-weight: 800;
+  content: "i";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  border: 1.5px solid #007873;
+  border-radius: 50%;
+  background: #f4fbfa;
+  color: #007873;
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: help;
+  transform: translateY(-1px);
 }
 
 .has-header-tooltip {
@@ -2801,12 +2827,7 @@ body {
   text-align: center;
 }
 
-.action-row {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
+
 
 .action-card {
   min-height: 72px;
@@ -3392,7 +3413,9 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 .municipio-info-page:has(.municipio-info-rank-panel) #municipio-info-region-list,
 .municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-back-actions,
 .municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-selector-section,
-.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-main-grid {
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-main-grid,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-general-history-section,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-indicator-history-section {
   grid-column: 1 / -1;
 }
 
@@ -3822,12 +3845,14 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   font-weight: 800;
 }
 
+.municipio-info-region-table th:nth-child(4),
 .municipio-info-region-table td:nth-child(4) {
-  width: 138px;
+  min-width: 190px;
+  width: 190px;
 }
 
 .municipio-info-region-table .classification-badge.compact {
-  min-width: 112px;
+  min-width: 118px;
 }
 
 .municipio-info-region-table th:not(:nth-child(2)):not(:nth-child(3)),
@@ -4105,7 +4130,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 }
 
 #municipio-info-category-radar {
-  min-height: 292px;
+  min-height: 270px;
 }
 
 .municipio-info-panel .js-plotly-plot .main-svg {
@@ -4131,7 +4156,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 
 .municipio-info-segmented {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   align-items: center;
   gap: 10px;
   padding: 0;
@@ -4280,10 +4305,345 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   display: none !important;
 }
 
+.municipio-info-general-history-section {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.municipio-info-general-history-card {
+  width: 100%;
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.municipio-info-category-indicator-history-section {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.municipio-info-category-indicator-history-card {
+  width: 100%;
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.general-history-header {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.general-history-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #526277;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.general-history-note i {
+  color: var(--municipio-primary);
+}
+
+.municipio-info-general-history-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #dfe6ec;
+  border-radius: 8px;
+}
+
+.municipio-info-category-indicator-history-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #dfe6ec;
+  border-radius: 8px;
+}
+
+.municipio-info-general-history-table {
+  width: 100%;
+  min-width: 980px;
+  table-layout: fixed;
+  border: 0;
+  border-radius: 0;
+}
+
+.municipio-info-category-indicator-history-table {
+  width: 100%;
+  min-width: 1100px;
+  table-layout: fixed;
+  border: 0;
+  border-radius: 0;
+}
+
+.municipio-info-general-history-table th,
+.municipio-info-general-history-table td {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.municipio-info-category-indicator-history-table th,
+.municipio-info-category-indicator-history-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.municipio-info-category-indicator-history-table th {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
+  line-height: 1.15;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 0.74rem;
+}
+
+.municipio-info-category-indicator-history-table td {
+  white-space: nowrap;
+  padding: 6px 10px;
+}
+
+.municipio-info-general-history-table th:first-child,
+.municipio-info-general-history-table td:first-child {
+  width: 90px;
+}
+
+.municipio-info-category-indicator-history-table th:first-child,
+.municipio-info-category-indicator-history-table td:first-child {
+  width: 86px;
+  min-width: 86px;
+}
+
+.municipio-info-category-indicator-history-table th:not(:first-child),
+.municipio-info-category-indicator-history-table td:not(:first-child) {
+  min-width: 150px;
+}
+
+.municipio-info-general-history-table .dimension-rank-pill,
+.municipio-info-category-indicator-history-table .dimension-rank-pill {
+  min-width: 58px;
+}
+
+.municipio-info-category-indicator-history-table .dimension-rank-pill {
+  min-width: 52px;
+}
+
+.general-history-year-cell {
+  color: #102542;
+  font-weight: 900;
+}
+
 #municipio-info-indicator-selector.municipio-info-selector-section,
 .municipio-info-selector-section:has(.indicator-pills) {
   padding: 10px 16px 12px;
   gap: 8px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) {
+  gap: 6px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-main-grid {
+  margin-top: 5px;
+  gap: 5px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-selector-section {
+  margin-top: 6px;
+  padding: 9px 14px 10px;
+  gap: 7px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .category-selector-container,
+.municipio-info-page:has(.municipio-info-rank-panel) .indicator-selector-container {
+  gap: 7px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-indicator-history-section,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-general-history-section {
+  margin-top: 6px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-panel {
+  min-height: 210px;
+  padding: 8px 10px 6px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-panel:has(#municipio-info-category-radar) {
+  min-height: 270px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-panel:has(#municipio-info-category-history) {
+  min-height: 280px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) #municipio-info-category-history,
+.municipio-info-page:has(.municipio-info-rank-panel) #municipio-info-category-history .js-plotly-plot {
+  min-height: 258px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-panel-header {
+  gap: 6px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .chart-title {
+  gap: 7px;
+  font-size: 0.84rem;
+  line-height: 1.1;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-panel .chart-title i {
+  font-size: 15px !important;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) #municipio-info-category-radar,
+.municipio-info-page:has(.municipio-info-rank-panel) #municipio-info-category-radar .js-plotly-plot {
+  min-height: 270px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-indicator-history-card,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-general-history-card {
+  padding: 10px 12px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .general-history-header {
+  gap: 5px;
+  margin-bottom: 7px;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .general-history-note {
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-indicator-history-table th {
+  min-height: 34px;
+  padding: 5px 8px;
+  font-size: 0.68rem;
+  line-height: 1.12;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-indicator-history-table td {
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-general-history-table th,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-general-history-table td {
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  line-height: 1.1;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-indicator-history-table .dimension-rank-pill,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-general-history-table .dimension-rank-pill {
+  min-width: 44px;
+  min-height: 20px;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .indicator-pills .municipio-info-segmented-option,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-indicator-pills .municipio-info-segmented-option,
+.municipio-info-page:has(.municipio-info-rank-panel) .indicator-pills .municipio-info-indicator-chip,
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-indicator-pills .municipio-info-indicator-chip {
+  height: 36px;
+  min-height: 36px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  line-height: 1.1;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-indicator-label {
+  line-height: 1.08;
+  -webkit-line-clamp: 2;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) #municipio-info-category .municipio-info-segmented-option {
+  height: 36px;
+  min-height: 36px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+}
+
+.municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-option-content {
+  gap: 7px;
+}
+
+.indicator-value-title-block {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.indicator-direction-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #526277;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.15;
+  min-height: 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.indicator-direction-subtitle::before {
+  content: "i";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  border-radius: 50%;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.indicator-direction-subtitle.is-higher-better {
+  color: #06724f;
+}
+
+.indicator-direction-subtitle.is-higher-better::before {
+  color: #06724f;
+  background: #e7f6ef;
+}
+
+.indicator-direction-subtitle.is-lower-better {
+  color: #8a5a12;
+}
+
+.indicator-direction-subtitle.is-lower-better::before {
+  color: #8a5a12;
+  background: #fff3cf;
+}
+
+.indicator-direction-subtitle.is-unknown {
+  color: #526277;
+}
+
+.indicator-direction-subtitle.is-unknown::before {
+  color: #526277;
+  background: #eef2f6;
+}
+
+.indicator-direction-subtitle.is-hidden {
+  display: none;
 }
 
 .municipio-info-more-dropdown .Select-control {
@@ -4458,14 +4818,17 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   .home-feature-grid,
   .stat-grid,
   .objective-grid,
-  .find-grid,
-  .action-row {
+  .find-grid {
     grid-template-columns: 1fr;
   }
 
   .municipio-info-category-grid,
   .municipio-info-page:has(.municipio-info-rank-panel) .municipio-info-category-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #municipio-info-category.municipio-info-segmented {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .region-explore-card {
@@ -4697,6 +5060,10 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 
   .municipio-info-indicator-select {
     width: 100%;
+  }
+
+  #municipio-info-category.municipio-info-segmented {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   #municipio-info-indicator-selector .indicator-selector-container {
@@ -5168,14 +5535,6 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   flex-direction: column;
 }
 
-.dashboard-grid.municipality-selected #ranking-table {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  padding-bottom: 0;
-  overflow: hidden;
-}
-
 #ranking-table .dash-table-container {
   width: 100%;
   height: 100%;
@@ -5188,14 +5547,395 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   max-height: 310px !important;
   overflow-x: auto !important;
   overflow-y: auto !important;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e1e7ec;
+  border: 1px solid #dfe6ec;
+  border-radius: 8px;
   scrollbar-gutter: stable;
+  background: #ffffff;
 }
 
 #ranking-table .dash-spreadsheet-inner {
   min-width: max-content;
-  padding-bottom: 4px;
+}
+
+#ranking-table .dash-spreadsheet-inner table {
+  border-collapse: collapse !important;
+  width: 100%;
+}
+
+#ranking-table .dash-spreadsheet-inner th {
+  height: 48px !important;
+  padding: 9px 12px !important;
+  border-right: 1px solid #dfe6ec !important;
+  border-bottom: 1px solid #cfd9df !important;
+  background: #ffffff !important;
+  color: #102542 !important;
+  font-family: "Inter", "Segoe UI", Arial, sans-serif !important;
+  font-size: 0.84rem !important;
+  font-weight: 900 !important;
+  line-height: 1.15 !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#ranking-table .dash-spreadsheet-inner th:last-child {
+  border-right: 0 !important;
+}
+
+#ranking-table .dash-spreadsheet-inner td {
+  height: 42px !important;
+  padding: 7px 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid #e1e7ec !important;
+  background: #ffffff;
+  font-family: "Inter", "Segoe UI", Arial, sans-serif !important;
+  font-size: 0.86rem !important;
+  font-weight: 500 !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#ranking-table .dash-spreadsheet-inner tr:hover td {
+  background: #f7fcfb !important;
+}
+
+#ranking-table .dash-spreadsheet-inner tr:first-child td {
+  background: #eef7f5 !important;
+}
+
+#ranking-table .dash-spreadsheet-inner tr:first-child td[data-dash-column="municipio"],
+#ranking-table .dash-spreadsheet-inner tr:first-child td[data-dash-column="corede"],
+#ranking-table .dash-spreadsheet-inner tr:first-child td[data-dash-column="posicao"] {
+  color: #007873 !important;
+  font-weight: 800 !important;
+}
+
+/* Tooltip nativo do Dash — escondido */
+#ranking-table .dash-tooltip {
+  display: none !important;
+}
+
+/* Cabeçalho da coluna de desempenho */
+#ranking-table th[data-dash-column="classificacao"] .column-header-name {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  max-width: 270px !important;
+  white-space: normal !important;
+  line-height: 1.15 !important;
+  text-align: center !important;
+}
+
+#ranking-table th[data-dash-column="classificacao"] .column-header-name::after {
+  content: "i";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  border: 1.5px solid #007873;
+  border-radius: 50%;
+  background: #f4fbfa;
+  color: #007873;
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: help;
+  transform: translateY(-1px);
+}
+
+#ranking-table th[data-dash-column="classificacao"]:hover .column-header-name::after {
+  color: #ffffff;
+  border-color: #006c67;
+  background: #006c67;
+}
+
+/* Tooltip customizado da coluna "Desempenho no porte populacional" */
+#ranking-table th[data-dash-column="classificacao"] {
+  position: relative !important;
+  overflow: visible !important;
+  z-index: 60 !important;
+}
+
+#ranking-table th[data-dash-column="classificacao"]::before {
+  content:
+    "Desempenho no porte populacional\A"
+    "\A"
+    "Classifica o município considerando seu desempenho em relação ao seu tamanho populacional.\A"
+    "\A"
+    "ACIMA\A"
+    "Desempenho acima do esperado para o porte populacional.\A"
+    "\A"
+    "NO INTERVALO\A"
+    "Desempenho dentro do esperado para o porte populacional.\A"
+    "\A"
+    "ABAIXO\A"
+    "Desempenho abaixo do esperado para o porte populacional.";
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  width: 360px;
+  max-width: min(360px, calc(100vw - 48px));
+  padding: 16px 18px;
+  border: 1px solid #d8e6e4;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(16, 37, 66, 0.20);
+  color: #102542;
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.42;
+  text-align: left;
+  white-space: pre-line;
+  z-index: 99999;
+  pointer-events: none;
+}
+
+#ranking-table th[data-dash-column="classificacao"]:hover::before {
+  display: block;
+}
+
+/* Garantir que o popup não seja cortado */
+#ranking-table .dash-table-container,
+#ranking-table .dash-spreadsheet-inner table,
+#ranking-table thead,
+#ranking-table tr,
+#ranking-table th {
+  overflow: visible !important;
+}
+
+#ranking-table .dash-spreadsheet-container {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  max-height: 310px !important;
+}
+
+.ranking-card {
+  overflow: visible !important;
+}
+
+.dashboard-grid.municipality-selected .ranking-card {
+  overflow: visible !important;
+}
+
+/* Tooltip customizado: Desempenho no porte populacional */
+.classification-header-cell {
+  position: relative;
+  overflow: visible !important;
+  white-space: normal !important;
+  min-width: 180px;
+}
+
+.classification-header-cell > span:first-child {
+  display: inline-block;
+  max-width: 170px;
+  white-space: normal;
+  line-height: 1.15;
+  vertical-align: middle;
+}
+
+.classification-header-cell .header-info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin-left: 6px;
+  border: 1.5px solid #007873;
+  border-radius: 50%;
+  background: #f4fbfa;
+  color: #007873;
+  font-size: 0.65rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.classification-header-cell:hover .header-info-icon {
+  background: #007873;
+  color: #ffffff;
+}
+
+.classification-tooltip-box {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  z-index: 9999;
+  display: none;
+  width: 360px;
+  max-width: min(360px, calc(100vw - 48px));
+  padding: 16px 18px;
+  border: 1px solid #d8e6e4;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(16, 37, 66, 0.20);
+  color: #102542;
+  text-align: left;
+  transform: translateX(-50%);
+  pointer-events: none;
+  white-space: normal;
+}
+
+.classification-tooltip-box::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border-left: 1px solid #d8e6e4;
+  border-top: 1px solid #d8e6e4;
+  background: #ffffff;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.classification-header-cell:hover .classification-tooltip-box {
+  display: block;
+}
+
+.classification-tooltip-title {
+  margin-bottom: 10px;
+  color: #102542;
+  font-size: 0.86rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.classification-tooltip-description {
+  margin-bottom: 13px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid #e1e7ec;
+  color: #31445d;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.42;
+}
+
+.classification-tooltip-section {
+  padding: 10px 0;
+  border-bottom: 1px solid #e8eef2;
+}
+
+.classification-tooltip-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.classification-tooltip-term-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.classification-tooltip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.classification-tooltip-dot.is-above {
+  background: #07845f;
+}
+
+.classification-tooltip-dot.is-range {
+  background: #d99132;
+}
+
+.classification-tooltip-dot.is-low {
+  background: #d92f3a;
+}
+
+.classification-tooltip-term {
+  color: #102542;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.classification-tooltip-text {
+  color: #31445d;
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.38;
+}
+
+.municipio-info-region-table thead th {
+  overflow: visible !important;
+}
+
+.municipio-info-region-table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+/* Badges de desempenho — fundo controlado pela cor do texto definida no style_data_conditional */
+#ranking-table td[data-dash-column="classificacao"] {
+  background: #ffffff !important;
+  text-align: center !important;
+}
+
+#ranking-table td[data-dash-column="classificacao"] .dash-cell-value {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 210px;
+  max-width: 250px;
+  min-height: 28px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: inherit;
+  background: #eef2f6;
+}
+
+/* Acima — texto verde */
+#ranking-table td[data-dash-column="classificacao"][style*="color: rgb(6, 114, 79)"] .dash-cell-value,
+#ranking-table td[data-dash-column="classificacao"][style*="color: #06724f"] .dash-cell-value {
+  background: #e7f6ef !important;
+  color: #06724f !important;
+}
+
+/* No intervalo — texto amarelo/dourado */
+#ranking-table td[data-dash-column="classificacao"][style*="color: rgb(138, 90, 18)"] .dash-cell-value,
+#ranking-table td[data-dash-column="classificacao"][style*="color: #8a5a12"] .dash-cell-value {
+  background: #fff3cf !important;
+  color: #8a5a12 !important;
+}
+
+/* Baixo — texto vermelho */
+#ranking-table td[data-dash-column="classificacao"][style*="color: rgb(180, 35, 45)"] .dash-cell-value,
+#ranking-table td[data-dash-column="classificacao"][style*="color: #b4232d"] .dash-cell-value {
+  background: #fde8e8 !important;
+  color: #b4232d !important;
+}
+
+/* Coluna de variação na posição */
+#ranking-table td[data-dash-column="delta_posicao"] {
+  font-weight: 900 !important;
+  font-size: 0.88rem !important;
+}
+
+#ranking-table td[data-dash-column="delta_posicao"] .dash-cell-value {
+  font-weight: 900 !important;
+}
+
+#ranking-table th[data-dash-column="delta_posicao"] .column-header-name {
+  white-space: normal !important;
+  line-height: 1.15 !important;
+  text-align: center !important;
 }
 
 #ranking-table table {
