@@ -1,8 +1,11 @@
+import logging
+import os
 import re
 import threading
 import textwrap
 import time
 import unicodedata
+from functools import lru_cache
 from urllib.parse import parse_qs
 
 import dash
@@ -22,6 +25,41 @@ from src.data_loader import (
     load_municipio_summary_data,
     load_ranking_data,
 )
+
+
+logger = logging.getLogger(__name__)
+logger.propagate = False
+
+PERF_LOGS = os.getenv("APP_PERF_LOGS", "0") == "1"
+
+if not logger.hasHandlers():
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(_handler)
+
+logger.setLevel(logging.DEBUG if PERF_LOGS else logging.WARNING)
+
+_perf_labels: dict[str, int] = {}
+
+
+def _perf(label: str) -> None:
+    _perf_labels.setdefault(label, 0)
+    _perf_labels[label] += 1
+    count = _perf_labels[label]
+    if count > 1 and PERF_LOGS:
+        logger.debug("[PERF] %s (call #%d)", label, count)
+
+
+def _perf_start(label: str) -> float:
+    _perf(label)
+    return time.perf_counter()
+
+
+def _perf_elapsed(label: str, start: float) -> None:
+    if PERF_LOGS:
+        logger.debug(
+            "[PERF] %s: %.1f ms", label, (time.perf_counter() - start) * 1000
+        )
 
 
 dash.register_page(__name__, path="/municipios", name="Munic\u00edpios")
@@ -286,7 +324,7 @@ def _indicator_label(value: str) -> str:
     try:
         friendly_name = load_indicator_names().get(identifier)
     except Exception as exc:
-        print(f"Erro ao carregar nomes dos indicadores: {exc}")
+        logger.error("Erro ao carregar nomes dos indicadores: %s", exc)
         friendly_name = None
     if friendly_name:
         return friendly_name
@@ -624,19 +662,32 @@ def _empty_figure(message: str, height: int = 260) -> go.Figure:
     return figure
 
 
-def _safe_ranking_data() -> pd.DataFrame:
+@lru_cache(maxsize=1)
+def _safe_ranking_data_cached() -> pd.DataFrame:
+    # Cache por sessao/processo; reinicie o app para limpar apos atualizacao de dados.
+    _perf("_safe_ranking_data")
     try:
         return load_ranking_data()
     except Exception as exc:
-        print(f"Erro ao carregar ranking_municipios: {exc}")
+        logger.error("Erro ao carregar ranking_municipios: %s", exc)
         return pd.DataFrame()
 
 
+def _safe_ranking_data() -> pd.DataFrame:
+    return _safe_ranking_data_cached().copy()
+
+
+@lru_cache(maxsize=16)
+def _safe_category_data_cached(category: str) -> pd.DataFrame:
+    return load_category_data(category)
+
+
 def _safe_category_data(category: str) -> pd.DataFrame:
+    _perf("_safe_category_data")
     try:
-        return load_category_data(category)
+        return _safe_category_data_cached(category)
     except Exception as exc:
-        print(f"Erro ao carregar categoria {category}: {exc}")
+        logger.error("Erro ao carregar categoria %s: %s", category, exc)
         return pd.DataFrame()
 
 
@@ -646,7 +697,7 @@ def _safe_category_positions(
     try:
         return load_category_positions(year, region, corede)
     except Exception as exc:
-        print(f"Erro ao carregar posicoes das categorias: {exc}")
+        logger.error("Erro ao carregar posicoes das categorias: %s", exc)
         return pd.DataFrame()
 
 
@@ -660,10 +711,11 @@ def _safe_municipio_summary(
     corede: str | None = None,
     municipio: str | None = None,
 ) -> pd.DataFrame:
+    _perf("_safe_municipio_summary")
     try:
         return load_municipio_summary_data(year, region, corede, municipio)
     except Exception as exc:
-        print(f"Erro ao carregar resumo otimizado de municipios: {exc}")
+        logger.error("Erro ao carregar resumo otimizado de municipios: %s", exc)
         return pd.DataFrame()
 
 
@@ -673,8 +725,18 @@ def _safe_municipio_category_history(
     try:
         return load_municipio_category_history_data(category, region, municipio)
     except Exception as exc:
-        print(f"Erro ao carregar historico otimizado da categoria: {exc}")
+        logger.error("Erro ao carregar historico otimizado da categoria: %s", exc)
         return pd.DataFrame()
+
+
+@lru_cache(maxsize=128)
+def _safe_municipio_indicator_data_cached(
+    category: str,
+    region: str | None,
+    municipio: str | None,
+    indicator: str | None = None,
+) -> pd.DataFrame:
+    return load_municipio_indicator_data(category, region, municipio, indicator)
 
 
 def _safe_municipio_indicator_data(
@@ -684,9 +746,11 @@ def _safe_municipio_indicator_data(
     indicator: str | None = None,
 ) -> pd.DataFrame:
     try:
-        return load_municipio_indicator_data(category, region, municipio, indicator)
+        return _safe_municipio_indicator_data_cached(
+            category, region, municipio, indicator
+        ).copy()
     except Exception as exc:
-        print(f"Erro ao carregar indicadores otimizados do municipio: {exc}")
+        logger.error("Erro ao carregar indicadores otimizados do municipio: %s", exc)
         return pd.DataFrame()
 
 
@@ -699,7 +763,7 @@ def _safe_indicator_regional_medians(
     try:
         return load_indicator_regional_medians(category, region, year, indicator)
     except Exception as exc:
-        print(f"Erro ao carregar medianas regionais dos indicadores: {exc}")
+        logger.error("Erro ao carregar medianas regionais dos indicadores: %s", exc)
         return pd.DataFrame()
 
 
@@ -756,7 +820,10 @@ def _regional_median_value(
 
 
 def _prefetch_municipio_detail_data(
-    year, region: str | None, category: str | None = None
+    year,
+    region: str | None,
+    category: str | None = None,
+    previous_year: int | None = None,
 ) -> None:
     if year is None or not region:
         return
@@ -770,21 +837,28 @@ def _prefetch_municipio_detail_data(
 
     def worker() -> None:
         try:
-            ranking = _safe_ranking_data()
-            previous_year = _previous_year(year, ranking)
-            if previous_year is not None:
-                _safe_category_positions(previous_year, region, None)
+            resolved_previous_year = previous_year
+            if resolved_previous_year is None:
+                ranking = _safe_ranking_data()
+                resolved_previous_year = _previous_year(year, ranking)
+            if resolved_previous_year is not None:
+                _safe_category_positions(resolved_previous_year, region, None)
         except Exception as exc:
-            print(f"Erro no pre-carregamento de municipio: {exc}")
+            logger.error("Erro no pre-carregamento de municipio: %s", exc)
 
     threading.Thread(target=worker, daemon=True).start()
 
 
-def _selected_context(year, region, municipio):
+def _selected_context(
+    year,
+    region,
+    municipio,
+    ranking_df: pd.DataFrame | None = None,
+):
     if year is None or not municipio:
         return None, region
 
-    ranking = _safe_ranking_data()
+    ranking = ranking_df if ranking_df is not None else _safe_ranking_data()
     if ranking.empty:
         return None, region
 
@@ -1106,14 +1180,24 @@ def _region_total_for_rank_color(
     return int(region_frame["municipio"].nunique())
 
 
-def _region_municipalities_table(year, region: str | None, corede: str | None):
+def _cache_key_text(value) -> str:
+    return "" if value is None else str(value)
+
+
+@lru_cache(maxsize=64)
+def _region_municipalities_table_data(
+    year: int, region_key: str, corede_key: str
+) -> tuple[list[dict], dict[str, dict], int, int | None]:
+    region = region_key or None
+    corede = corede_key or None
     summary = _safe_municipio_summary(year, region, corede)
     ranking = _safe_ranking_data()
     region_total_for_color = _region_total_for_rank_color(year, region, ranking)
-    if ranking.empty or year is None:
-        return _empty_state("Sem dados de munic\u00edpios para listar.")
-    if not region:
-        return _build_region_overview(year)
+
+    if ranking.empty:
+        return [], {}, 0, None
+
+    previous_year = _previous_year(year, ranking)
 
     if summary.empty:
         frame = ranking[
@@ -1123,8 +1207,9 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
             frame = frame[frame["corede"] == corede]
     else:
         frame = summary.copy()
+
     if frame.empty:
-        return _empty_state("N\u00e3o h\u00e1 munic\u00edpios no recorte selecionado.")
+        return [], {}, region_total_for_color, previous_year
 
     frame = _with_classificacao_from_ranking(frame, ranking)
     frame = frame.sort_values(["ranking_regiao_funcional", "municipio"])
@@ -1132,7 +1217,6 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
     if region_total_for_color < 1:
         region_total_for_color = int(frame["municipio"].nunique())
 
-    _prefetch_municipio_detail_data(year, region, CATEGORY_DEFAULT)
     positions = pd.DataFrame()
     if summary.empty:
         positions = _safe_category_positions(year, region, None)
@@ -1151,6 +1235,34 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
                 if not positions.empty
                 else {}
             )
+
+    return (
+        frame.to_dict("records"),
+        category_positions,
+        region_total_for_color,
+        previous_year,
+    )
+
+
+def _region_municipalities_table(year, region: str | None, corede: str | None):
+    if year is None:
+        return _empty_state("Sem dados de munic\u00edpios para listar.")
+
+    if not region:
+        ranking = _safe_ranking_data()
+        if ranking.empty:
+            return _empty_state("Sem dados de munic\u00edpios para listar.")
+        return _build_region_overview(year)
+
+    records, category_positions, region_total_for_color, previous_year = (
+        _region_municipalities_table_data(
+            int(year), _cache_key_text(region), _cache_key_text(corede)
+        )
+    )
+    if not records:
+        return _empty_state("N\u00e3o h\u00e1 munic\u00edpios no recorte selecionado.")
+
+    _prefetch_municipio_detail_data(year, region, CATEGORY_DEFAULT, previous_year)
 
     header_cells = [
         html.Th("Geral"),
@@ -1281,13 +1393,13 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
             n_clicks=0,
             title=f"Selecionar {row['municipio']}",
         )
-        for _, row in frame.iterrows()
+        for row in records
     ]
 
     subtitle = (
-        f"{len(frame)} munic\u00edpios em {region}"
+        f"{len(records)} munic\u00edpios em {region}"
         if not corede
-        else f"{len(frame)} munic\u00edpios em {region} - {corede}"
+        else f"{len(records)} munic\u00edpios em {region} - {corede}"
     )
     return html.Div(
         [
@@ -2313,12 +2425,14 @@ def _indicator_value_history_figure(
     category_data: pd.DataFrame | None = None,
     regional_medians: pd.DataFrame | None = None,
 ):
+    _t_entry = time.perf_counter()
     history, _ = _indicator_history(
         category, region, municipio, indicator, category_data
     )
     if history.empty:
         return _empty_figure("Selecione um indicador.", height=260)
 
+    _t_format = time.perf_counter()
     display_values = [
         _indicator_observed_display_value(value, indicator)
         for value in history["valor_original"]
@@ -2329,7 +2443,13 @@ def _indicator_value_history_figure(
     ]
     is_percent = _is_percent_indicator(indicator)
     y_axis_title = "Valor Observado (%)" if is_percent else "Valor Observado"
+    _perf_elapsed("indicator_value.load_and_format", _t_entry)
     regional_median_series = None
+    median_source = "none"
+    history_years = sorted(history["ano"].dropna().astype(int).tolist())
+
+    _t_medians = time.perf_counter()
+    mediana_por_ano = None
 
     filtered_medians = _filter_regional_medians(
         regional_medians, category, region, None, indicator
@@ -2353,11 +2473,80 @@ def _indicator_value_history_figure(
         )
         if not mediana_por_ano.empty:
             regional_median_series = history["ano"].map(mediana_por_ano)
+            median_source = "regional_medians"
+    regional_years = sorted(mediana_por_ano.index.astype(int).tolist()) if mediana_por_ano is not None and not mediana_por_ano.empty else []
+    nan_after_step1 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
+    _perf_elapsed("indicator_value.use_regional_medians", _t_medians)
 
-    needs_fallback = (
-        regional_median_series is None or pd.Series(regional_median_series).isna().any()
+    needs_specific = (
+        regional_median_series is None
+        or pd.Series(regional_median_series).isna().any()
     )
-    if needs_fallback:
+    specific_por_ano = None
+    specific_years = []
+    nan_after_step2 = nan_after_step1
+    if needs_specific:
+        _t_specific = time.perf_counter()
+        specific_medians = _safe_indicator_regional_medians(
+            category, region, None, indicator
+        )
+        if (
+            not specific_medians.empty
+            and "ano" in specific_medians.columns
+            and "mediana_valor_original_regiao" in specific_medians.columns
+        ):
+            specific_por_ano = (
+                specific_medians.assign(
+                    ano=pd.to_numeric(specific_medians["ano"], errors="coerce"),
+                    mediana_valor_original_regiao=pd.to_numeric(
+                        specific_medians["mediana_valor_original_regiao"],
+                        errors="coerce",
+                    ),
+                )
+                .dropna(subset=["ano", "mediana_valor_original_regiao"])
+                .groupby("ano")["mediana_valor_original_regiao"]
+                .first()
+            )
+            if not specific_por_ano.empty:
+                specific_series = history["ano"].map(specific_por_ano)
+                if regional_median_series is None:
+                    regional_median_series = specific_series
+                    median_source = "specific_indicator_medians"
+                else:
+                    regional_median_series = pd.Series(regional_median_series).fillna(
+                        pd.Series(specific_series.values, index=range(len(specific_series)))
+                    )
+                    median_source = "regional_medians+specific_indicator_medians"
+                specific_years = sorted(specific_por_ano.index.astype(int).tolist())
+        nan_after_step2 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
+        _perf_elapsed("indicator_value.specific_indicator_medians", _t_specific)
+
+    needs_history_patch = (
+        regional_median_series is not None
+        and pd.Series(regional_median_series).isna().any()
+        and "mediana_valor_original_regiao" in history.columns
+        and history["mediana_valor_original_regiao"].notna().any()
+    )
+    if needs_history_patch:
+        history_median_map = (
+            history[["ano", "mediana_valor_original_regiao"]]
+            .dropna(subset=["mediana_valor_original_regiao"])
+            .set_index("ano")["mediana_valor_original_regiao"]
+        )
+        fill_values = history["ano"].map(history_median_map)
+        regional_median_series = pd.Series(regional_median_series).fillna(
+            pd.Series(fill_values.values, index=range(len(fill_values)))
+        )
+        median_source += "+history_column"
+    nan_after_step3 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
+
+    has_any_median = (
+        regional_median_series is not None
+        and pd.Series(regional_median_series).notna().any()
+    )
+    needs_legacy_fallback = regional_median_series is None or not has_any_median
+    _t_fallback = time.perf_counter()
+    if needs_legacy_fallback:
         regional_frame = _safe_category_data(category)
         if (
             not regional_frame.empty
@@ -2369,8 +2558,7 @@ def _indicator_value_history_figure(
             region_indicator_frame = regional_frame[
                 (regional_frame["regiao_funcional"] == region)
                 & (regional_frame["indicador"] == indicator)
-            ].copy()
-
+            ]
             if not region_indicator_frame.empty:
                 mediana_por_ano = region_indicator_frame.groupby("ano")[
                     "valor_original"
@@ -2379,16 +2567,31 @@ def _indicator_value_history_figure(
                 regional_median_series = (
                     fallback_series
                     if regional_median_series is None
-                    else regional_median_series.fillna(fallback_series)
+                    else pd.Series(regional_median_series).fillna(
+                        pd.Series(fallback_series.values, index=range(len(fallback_series)))
+                    )
                 )
+                median_source += "+fallback_category_data_legacy"
+        _perf_elapsed("indicator_value.fallback_category_data_legacy", _t_fallback)
 
-    if (
-        regional_median_series is None
-        and "mediana_valor_original_regiao" in history.columns
-        and history["mediana_valor_original_regiao"].notna().any()
-    ):
-        regional_median_series = history["mediana_valor_original_regiao"]
+    missing_after_all = []
+    if regional_median_series is not None:
+        missing_mask = pd.Series(regional_median_series).isna()
+        if missing_mask.any():
+            missing_after_all = sorted(history["ano"][missing_mask].astype(int).tolist())
 
+    logger.debug(
+        "[PERF] indicator_value.median_coverage: history_years=%s regional_years=%s specific_years=%s missing_after_all=%s",
+        history_years, regional_years, specific_years if needs_specific else [], missing_after_all,
+    )
+    logger.debug(
+        "[PERF] indicator_value.nan_count: total_years=%d after_regional=%d after_specific=%d after_history_patch=%d after_all=%d",
+        len(history_years), nan_after_step1, nan_after_step2, nan_after_step3, len(missing_after_all),
+    )
+    logger.debug("[PERF] indicator_value.median_source: %s", median_source)
+    _perf_elapsed("indicator_value.resolve_medians", _t_medians)
+
+    _t_build = time.perf_counter()
     has_regional_median = bool(
         regional_median_series is not None
         and pd.Series(regional_median_series).notna().any()
@@ -2478,6 +2681,7 @@ def _indicator_value_history_figure(
         ),
         showlegend=has_regional_median,
     )
+    _perf_elapsed("indicator_value.figure_build", _t_build)
     return figure
 
 
@@ -2825,12 +3029,18 @@ def select_region_from_summary(_clicks):
     State("municipio-info-indicator", "value"),
 )
 def update_indicator_options(year, region, municipio, category, current_indicator):
+    _t0 = time.perf_counter()
     if category == GENERAL_CATEGORY:
+        _perf_elapsed("update_indicator_options (early)", _t0)
         return [], None, [], None, {"display": "none"}
 
     category = category if category in CATEGORY_LABELS else CATEGORY_DEFAULT
-    selected_row, resolved_region = _selected_context(year, region, municipio)
+    ranking = _safe_ranking_data() if year is not None and municipio else None
+    selected_row, resolved_region = _selected_context(
+        year, region, municipio, ranking
+    )
     if selected_row is None:
+        _perf_elapsed("update_indicator_options (no context)", _t0)
         return [], None, [], None, {"display": "none"}
 
     indicator_data = _safe_municipio_indicator_data(
@@ -2848,6 +3058,7 @@ def update_indicator_options(year, region, municipio, category, current_indicato
         if current_indicator in values
         else (values[0] if values else None)
     )
+    _perf_elapsed("update_indicator_options", _t0)
     return all_options, value, [], None, {"display": "none"}
 
 
@@ -2887,7 +3098,14 @@ def update_indicator_options(year, region, municipio, category, current_indicato
     Input("municipio-info-indicator", "value"),
 )
 def update_municipio_info(year, region, corede, municipio, category, indicator):
-    selected_row, resolved_region = _selected_context(year, region, municipio)
+    _t0 = time.perf_counter()
+    _perf_labels.clear()
+    _t1 = time.perf_counter()
+    ranking_for_context = _safe_ranking_data() if year is not None and municipio else None
+    selected_row, resolved_region = _selected_context(
+        year, region, municipio, ranking_for_context
+    )
+    _t1a = time.perf_counter()
     if selected_row is None:
         empty_figure = _empty_figure(
             "Selecione um munic\u00edpio no filtro superior.", height=260
@@ -2897,6 +3115,14 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             "Selecione um munic\u00edpio na tabela abaixo para abrir a an\u00e1lise completa."
             if region
             else "Selecione um ano e um munic\u00edpio para abrir a an\u00e1lise."
+        )
+        _t_region_table = time.perf_counter()
+        _region_table = _region_municipalities_table(year, region, corede)
+        _perf_elapsed("figure.region_municipalities_table", _t_region_table)
+        _te = time.perf_counter()
+        logger.debug(
+            "[PERF] update_municipio_info (no selection): %.1f ms | sel_context=%.1f ms | region_table=%.1f ms",
+            (_te - _t0) * 1000, (_t1a - _t1) * 1000, (_te - _t1a) * 1000,
         )
         return (
             html.Div(
@@ -2908,7 +3134,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             hero_style,
             [],
             {"display": "none"},
-            _region_municipalities_table(year, region, corede),
+            _region_table,
             {},
             {"display": "none"},
             {"display": "none"},
@@ -2935,7 +3161,8 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
     category = category if category in CATEGORY_SELECTOR_LABELS else GENERAL_CATEGORY
     is_general_category = category == GENERAL_CATEGORY
 
-    ranking = _safe_ranking_data()
+    _t_data = time.perf_counter()
+    ranking = ranking_for_context if ranking_for_context is not None else _safe_ranking_data()
     previous_year = _previous_year(year, ranking)
     current_positions = _safe_category_positions(year, resolved_region, None)
     total_municipios = (
@@ -2991,6 +3218,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
     )
     indicator_direction_subtitle_class = f"indicator-direction-subtitle {_indicator_direction_class(indicator_direction)}"
     category_label = CATEGORY_SELECTOR_LABELS.get(category, _fmt_text(category))
+    _t_context = time.perf_counter()
 
     context = html.Div(
         [
@@ -3055,10 +3283,13 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             )
         )
 
+    _t_context_done = time.perf_counter()
     if is_general_category:
+        _t_figure = time.perf_counter()
         general_history_section = _general_dimension_history_table(
             year, resolved_region, municipio_name, ranking
         )
+        _perf_elapsed("figure.general_dimension_history_table", _t_figure)
         category_history_title = (
             f"Hist\u00f3rico de posi\u00e7\u00e3o geral - {municipio_name}"
         )
@@ -3068,12 +3299,16 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         indicator_selector_style = {"display": "none"}
         lower_grid_style = {"display": "none"}
         general_section_style = {}
+        _t_figure = time.perf_counter()
         category_history_figure = _general_position_history_figure(
             year, resolved_region, municipio_name, ranking
         )
+        _perf_elapsed("figure.general_position_history_figure", _t_figure)
+        _t_figure = time.perf_counter()
         category_radar_figure = _general_dimension_radar_figure(
             year, resolved_region, municipio_name, ranking, current_positions
         )
+        _perf_elapsed("figure.general_dimension_radar_figure", _t_figure)
         indicator_history_title = "Hist\u00f3rico de posi\u00e7\u00e3o no indicador"
         indicator_value_title = "Valor Observado do indicador no tempo"
         indicator_value_subtitle = ""
@@ -3090,6 +3325,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             f"Hist\u00f3rico de posi\u00e7\u00e3o - {category_label}"
         )
         category_radar_title = f"Notas da dimens\u00e3o - {category_label}"
+        _t_figure = time.perf_counter()
         category_indicator_history_section = _category_indicator_history_table(
             category,
             year,
@@ -3097,13 +3333,17 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             municipio_name,
             indicator_data,
         )
+        _perf_elapsed("figure.category_indicator_history_table", _t_figure)
         category_indicator_history_style = {}
         indicator_selector_style = {}
         lower_grid_style = {}
         general_section_style = {"display": "none"}
+        _t_figure = time.perf_counter()
         category_history_figure = _category_history_figure(
             category, resolved_region, municipio_name, category_history_data
         )
+        _perf_elapsed("figure.category_history_figure", _t_figure)
+        _t_figure = time.perf_counter()
         category_radar_figure = _category_radar_figure(
             category,
             year,
@@ -3112,15 +3352,19 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             indicator_data,
             regional_medians,
         )
+        _perf_elapsed("figure.category_radar_figure", _t_figure)
         indicator_history_title = (
             f"Hist\u00f3rico de posi\u00e7\u00e3o - {indicator_label}"
         )
         indicator_value_title = f"Valor Observado - {indicator_label}"
         indicator_value_subtitle = indicator_direction_subtitle
         indicator_value_subtitle_class = indicator_direction_subtitle_class
+        _t_figure = time.perf_counter()
         indicator_history_figure = _indicator_history_figure(
             category, resolved_region, municipio_name, indicator, indicator_data
         )
+        _perf_elapsed("figure.indicator_history_figure", _t_figure)
+        _t_figure = time.perf_counter()
         indicator_value_figure = _indicator_value_history_figure(
             category,
             resolved_region,
@@ -3129,21 +3373,38 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             indicator_data,
             regional_medians,
         )
+        _perf_elapsed("figure.indicator_value_history_figure", _t_figure)
 
+    _t_figures_done = time.perf_counter()
+    cards = _category_cards(
+        year,
+        resolved_region,
+        municipio_name,
+        category,
+        current_positions,
+        previous_positions,
+        previous_year,
+    )
+    _t_cards_done = time.perf_counter()
+
+    _te = time.perf_counter()
+    logger.debug(
+        "[PERF] update_municipio_info: %.1f ms"
+        " | sel_context=%.1f"
+        " | data_load=%.1f"
+        " | context=%.1f"
+        " | figures=%.1f"
+        " | cards=%.1f",
+        (_te - _t0) * 1000, (_t1a - _t1) * 1000, (_t_context - _t_data) * 1000,
+        (_t_context_done - _t_context) * 1000, (_t_figures_done - _t_context_done) * 1000,
+        (_t_cards_done - _t_figures_done) * 1000,
+    )
     return (
         context,
         title,
         subtitle,
         {},
-        _category_cards(
-            year,
-            resolved_region,
-            municipio_name,
-            category,
-            current_positions,
-            previous_positions,
-            previous_year,
-        ),
+        cards,
         {},
         html.Div(),
         {"display": "none"},
@@ -3176,11 +3437,13 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
     prevent_initial_call=True,
 )
 def select_municipio_from_region_table(_clicks):
+    _t0 = time.perf_counter()
     if not _clicks or not any(clicks for clicks in _clicks if clicks):
         return dash.no_update, dash.no_update
 
     triggered = ctx.triggered_id
     if isinstance(triggered, dict):
+        _perf_elapsed("select_municipio_from_region_table", _t0)
         return triggered.get("municipio"), triggered.get("corede")
     return dash.no_update, dash.no_update
 

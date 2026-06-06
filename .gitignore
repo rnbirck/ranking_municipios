@@ -1,11 +1,14 @@
 .env
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.fallow/
 .venv/
 .conda/
 src/data/cache/
 *.log
 log_erros.txt
+.DS_Store
+.vscode/
