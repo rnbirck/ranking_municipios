@@ -3726,35 +3726,61 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   border: 0;
   box-shadow: none;
   background: transparent;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
 }
 
-.municipio-info-rank-value {
+.municipio-info-rank-main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  line-height: 1;
 }
 
-.municipio-info-rank-value strong {
+.municipio-info-rank-main strong {
   color: var(--municipio-primary);
-  font-size: 1.85rem;
+  font-size: 1.75rem;
   font-weight: 900;
   line-height: 1;
   letter-spacing: -0.03em;
 }
 
-.municipio-info-rank-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
+.municipio-info-rank-trophy {
+  display: inline-flex;
+  align-items: center;
   color: var(--municipio-primary);
-  background: #fff4dc;
+  opacity: 0.9;
 }
 
-.municipio-info-rank-icon i {
-  font-size: 22px !important;
+.municipio-info-rank-trophy i {
+  font-size: 20px !important;
+}
+
+.municipio-info-rank-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 22px;
+  white-space: nowrap;
+}
+
+.municipio-info-rank-previous {
+  color: #40536f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.municipio-info-rank-meta .municipio-info-variation-chip {
+  min-height: 20px;
+  padding: 3px 8px;
+  font-size: 0.66rem;
+  line-height: 1;
 }
 
 .municipio-info-rank-note {

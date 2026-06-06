@@ -1469,6 +1469,40 @@ def _previous_year(year, ranking: pd.DataFrame | None = None) -> int | None:
     return previous_years[-1] if previous_years else None
 
 
+def _previous_general_position(
+    ranking: pd.DataFrame | None,
+    previous_year: int | None,
+    region: str | None,
+    municipio: str | None,
+):
+    if (
+        ranking is None
+        or ranking.empty
+        or previous_year is None
+        or not region
+        or not municipio
+    ):
+        return None
+
+    required_columns = {
+        "ano",
+        "regiao_funcional",
+        "municipio",
+        "ranking_regiao_funcional",
+    }
+    if not required_columns.issubset(ranking.columns):
+        return None
+
+    frame = ranking[
+        (ranking["ano"] == int(previous_year))
+        & (ranking["regiao_funcional"] == region)
+        & (ranking["municipio"] == municipio)
+    ]
+    if frame.empty:
+        return None
+    return frame.iloc[0].get("ranking_regiao_funcional")
+
+
 def _category_cards(
     year,
     region,
@@ -3250,6 +3284,15 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
     )
     indicator_direction_subtitle_class = f"indicator-direction-subtitle {_indicator_direction_class(indicator_direction)}"
     category_label = CATEGORY_SELECTOR_LABELS.get(category, _fmt_text(category))
+    current_general_position = selected_row.get("ranking_regiao_funcional")
+    previous_general_position = _previous_general_position(
+        ranking, previous_year, resolved_region, municipio_name
+    )
+    previous_general_label = (
+        f"{previous_year}: {_fmt_pos(previous_general_position)}"
+        if previous_year is not None and previous_general_position is not None
+        else "Ano anterior: -"
+    )
     _t_context = time.perf_counter()
 
     context = html.Div(
@@ -3278,15 +3321,26 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
                     ),
                     html.Div(
                         [
-                            html.Strong(
-                                _fmt_pos(selected_row.get("ranking_regiao_funcional"))
-                            ),
+                            html.Strong(_fmt_pos(current_general_position)),
                             html.Span(
-                                _icon("trophy", 26),
-                                className="municipio-info-rank-icon",
+                                _icon("trophy", 22),
+                                className="municipio-info-rank-trophy",
                             ),
                         ],
-                        className="municipio-info-rank-value",
+                        className="municipio-info-rank-main",
+                    ),
+                    html.Div(
+                        [
+                            html.Span(
+                                previous_general_label,
+                                className="municipio-info-rank-previous",
+                            ),
+                            _position_variation_chip(
+                                current_general_position,
+                                previous_general_position,
+                            ),
+                        ],
+                        className="municipio-info-rank-meta",
                     ),
                 ],
                 className="municipio-info-context-card municipio-info-position-card",
