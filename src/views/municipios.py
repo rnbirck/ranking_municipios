@@ -219,6 +219,11 @@ def _position_variation_chip(current_value, previous_value):
 
 INDICATOR_FALLBACK_LABELS = {
     "qt_acesso_infor": "Acesso \u00e0 informa\u00e7\u00e3o",
+    "adequacao_formacao_docente": "Adequa\u00e7\u00e3o da Forma\u00e7\u00e3o Docente",
+    "saeb_ensino_fundamental": "Nota do SAEB - Ensino Fundamental",
+    "saeb_ensino_fundamental_media": "Nota do SAEB - Ensino Fundamental",
+    "taxa_cobertura_creche": "Taxa de Cobertura de Creche",
+    "taxa_distorcao_fundamental": "Taxa de Distor\u00e7\u00e3o Idade-S\u00e9rie - Ensino Fundamental",
 }
 
 PERCENT_INDICATOR_MULTIPLIERS = {
@@ -340,11 +345,15 @@ def _indicator_label(value: str) -> str:
     except Exception as exc:
         logger.error("Erro ao carregar nomes dos indicadores: %s", exc)
         friendly_name = None
-    if friendly_name:
-        return friendly_name
-    return INDICATOR_FALLBACK_LABELS.get(
-        identifier, identifier.replace("_", " ").capitalize()
+    fallback_label = INDICATOR_FALLBACK_LABELS.get(
+        identifier, INDICATOR_FALLBACK_LABELS.get(_indicator_key(identifier))
     )
+    if friendly_name:
+        friendly_key = _indicator_key(friendly_name)
+        return INDICATOR_FALLBACK_LABELS.get(friendly_key, friendly_name)
+    if fallback_label:
+        return fallback_label
+    return identifier.replace("_", " ").capitalize()
 
 
 def _indicator_display_label(value: str, row=None) -> str:
@@ -355,6 +364,9 @@ def _indicator_display_label(value: str, row=None) -> str:
             name = None
         if name is not None and not pd.isna(name):
             text = str(name).strip()
+            fallback_label = INDICATOR_FALLBACK_LABELS.get(_indicator_key(text))
+            if fallback_label:
+                return fallback_label
             if text and text != str(value or "").strip():
                 return text
     return _indicator_label(str(value or ""))
