@@ -11,6 +11,8 @@ from dash import Dash, Input, Output, State, callback, ctx, dcc, html
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
+logger = logging.getLogger(__name__)
+
 from src.data_loader import (
     filter_ranking_data,
     get_default_year,
@@ -46,7 +48,7 @@ def _safe_load_anos() -> list[int]:
     try:
         return load_anos()
     except Exception as exc:
-        print(f"Erro ao carregar anos: {exc}")
+        logger.error("Erro ao carregar anos: %s", exc)
         return []
 
 
@@ -59,7 +61,7 @@ def _safe_filter_frame(
             frame = frame[frame["corede"] == corede]
         return frame
     except Exception as exc:
-        print(f"Erro ao filtrar dados: {exc}")
+        logger.error("Erro ao filtrar dados: %s", exc)
         return None
 
 
@@ -124,7 +126,9 @@ def _icon(name: str, size: int = 18):
 
 
 def _logo():
-    return html.Img(src="/assets/logo_unisinos_white.png", className="brand-logo", alt="Unisinos")
+    return html.Img(
+        src="/assets/logo_unisinos_white.png", className="brand-logo", alt="Unisinos"
+    )
 
 
 def _nav_item(label: str, href: str, icon_name: str, active="partial"):
@@ -149,6 +153,55 @@ def _municipio_options(values):
         }
         for municipio in values
     ]
+
+
+def _parse_municipios_query(search: str | None) -> dict:
+    if not search:
+        return {"regiao": None, "corede": None, "municipio": None}
+    params = parse_qs(search.lstrip("?"), keep_blank_values=True)
+    return {
+        "regiao": params.get("regiao", [None])[0] or None,
+        "corede": params.get("corede", [None])[0] or None,
+        "municipio": params.get("municipio", [None])[0] or None,
+    }
+
+
+def _resolve_filter_state(
+    *,
+    triggered,
+    selected_region,
+    selected_corede,
+    current_municipio,
+    year_frame,
+    regions,
+    query_region=None,
+    query_corede=None,
+    query_municipio=None,
+    is_municipios_page=False,
+):
+    if triggered == "clear-filters":
+        return None, None, None
+
+    if triggered in (None, "app-location", "filter-ano") and query_region:
+        selected_region = query_region
+        selected_corede = query_corede
+        current_municipio = query_municipio
+
+    region = selected_region if selected_region in regions else None
+    coredes_for_region = _corede_options_from_frame(year_frame, region)
+    corede = selected_corede if selected_corede in coredes_for_region else None
+    municipios_for_scope = (
+        _municipio_names_from_frame(year_frame)
+        if is_municipios_page and not region
+        else _municipio_names_from_frame(year_frame, region, corede)
+    )
+    municipio = (
+        current_municipio if current_municipio in municipios_for_scope else None
+    )
+    if is_municipios_page and not region:
+        municipio = None
+
+    return region, corede, municipio
 
 
 def serve_layout():
@@ -297,7 +350,7 @@ app = Dash(
         "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css",
     ],
     suppress_callback_exceptions=True,
-    title="Dashboard Ranking Municípios",
+    title="Radar dos Municípios do RS",
 )
 server = app.server
 app.layout = serve_layout
@@ -324,46 +377,27 @@ def update_filter_options(
     selected_corede,
     pathname,
     search,
-    clear_clicks,
+    _clear_clicks,
     current_municipio,
 ):
     triggered = ctx.triggered_id
     year_frame = _safe_filter_frame(selected_year)
     regions = _region_options_from_frame(year_frame)
     is_municipios_page = pathname == "/municipios"
-    query_region = None
-    query_corede = None
-    query_municipio = None
+    query_params = _parse_municipios_query(search) if is_municipios_page else {}
 
-    if is_municipios_page and search:
-        params = parse_qs(search.lstrip("?"), keep_blank_values=True)
-        query_region = params.get("regiao", [None])[0] or None
-        query_corede = params.get("corede", [None])[0] or None
-        query_municipio = params.get("municipio", [None])[0] or None
-
-    if triggered == "clear-filters":
-        region = None
-        corede = None
-        municipio = None
-    else:
-        if triggered in (None, "app-location", "filter-ano") and query_region:
-            selected_region = query_region
-            selected_corede = query_corede
-            current_municipio = query_municipio
-
-        region = selected_region if selected_region in regions else None
-        coredes_for_region = _corede_options_from_frame(year_frame, region)
-        corede = selected_corede if selected_corede in coredes_for_region else None
-        municipios_for_scope = (
-            _municipio_names_from_frame(year_frame)
-            if is_municipios_page and not region
-            else _municipio_names_from_frame(year_frame, region, corede)
-        )
-        municipio = (
-            current_municipio if current_municipio in municipios_for_scope else None
-        )
-        if is_municipios_page and not region:
-            municipio = None
+    region, corede, municipio = _resolve_filter_state(
+        triggered=triggered,
+        selected_region=selected_region,
+        selected_corede=selected_corede,
+        current_municipio=current_municipio,
+        year_frame=year_frame,
+        regions=regions,
+        query_region=query_params.get("regiao"),
+        query_corede=query_params.get("corede"),
+        query_municipio=query_params.get("municipio"),
+        is_municipios_page=is_municipios_page,
+    )
 
     coredes = _corede_options_from_frame(year_frame, region)
     municipalities = (

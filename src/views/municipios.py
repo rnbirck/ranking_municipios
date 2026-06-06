@@ -172,9 +172,23 @@ def _classification_status(value) -> str:
     return "neutral" if text else "missing"
 
 
+def _classification_display_label(value) -> str:
+    text = _fmt_text(value)
+    normalized = (
+        unicodedata.normalize("NFKD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+        .strip()
+    )
+    if normalized == "baixo":
+        return "Abaixo"
+    return text
+
+
 def _classification_badge(value, class_name: str = ""):
     status = _classification_status(value)
-    label = _fmt_text(value)
+    label = _classification_display_label(value)
     classes = f"classification-badge status-{status}"
     if class_name:
         classes = f"{classes} {class_name}"
