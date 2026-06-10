@@ -6,7 +6,7 @@ import textwrap
 import time
 import unicodedata
 from functools import lru_cache
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 import dash
 import pandas as pd
@@ -224,15 +224,71 @@ INDICATOR_FALLBACK_LABELS = {
     "saeb_ensino_fundamental_media": "Nota do SAEB - Ensino Fundamental",
     "taxa_cobertura_creche": "Taxa de Cobertura de Creche",
     "taxa_distorcao_fundamental": "Taxa de Distor\u00e7\u00e3o Idade-S\u00e9rie - Ensino Fundamental",
+    "proporcao_consultas_pre_natal": "Propor\u00e7\u00e3o de nascidos vivos de m\u00e3es com 7 ou mais consultas de pr\u00e9-natal",
+    "proporcao_de_gravidas_com_pelo_menos_7_consultas_pre_natal": "Propor\u00e7\u00e3o de nascidos vivos de m\u00e3es com 7 ou mais consultas de pr\u00e9-natal",
 }
 
 PERCENT_INDICATOR_MULTIPLIERS = {
-    "qt_acesso_infor": 100,
+    "qt_acesso_infor": 1,
     "formalidade_mercado_trabalho": 100,
-    "geracao_emprego_per_capita": 100,
-    "vinculos_per_capita": 100,
     "proporcao_pessoas_baixa_renda": 1,
     "vulnerabilidade_social": 1,
+    "proporcao_gravidez_adolescencia": 1,
+    "proporcao_de_gravidez_na_adolescencia": 1,
+    "proporcao_consultas_pre_natal": 1,
+    "proporcao_de_gravidas_com_pelo_menos_7_consultas_pre_natal": 1,
+    "proporcao_de_nascidos_vivos_de_maes_com_7_ou_mais_consultas_de_pre_natal": 1,
+    "cobertura_acs": 1,
+    "cobertura_aps": 1,
+    "cobertura_vacinal_penta_polio_media": 1,
+    "taxa_cobertura_creche": 1,
+    "taxa_distorcao_fundamental": 1,
+    "adequacao_formacao_docente": 1,
+    "proporcao_atendimento_agua": 1,
+    "prop_atendimento_agua": 1,
+    "proporcao_coleta_residuos": 1,
+    "prop_coleta_residuos": 1,
+    "indice_perdas_distribuicao": 1,
+}
+
+INDICATOR_AXIS_LABELS = {
+    "proporcao_gravidez_adolescencia": "Nascidos vivos (%)",
+    "proporcao_de_gravidez_na_adolescencia": "Nascidos vivos (%)",
+    "proporcao_consultas_pre_natal": "Nascidos vivos (%)",
+    "proporcao_de_gravidas_com_pelo_menos_7_consultas_pre_natal": "Nascidos vivos (%)",
+    "proporcao_de_nascidos_vivos_de_maes_com_7_ou_mais_consultas_de_pre_natal": "Nascidos vivos (%)",
+    "cobertura_acs": "Cobertura (%)",
+    "cobertura_aps": "Cobertura (%)",
+    "cobertura_vacinal_penta_polio_media": "Cobertura vacinal (%)",
+    "obitos_causas_evitaveis_mil_habitantes": "\u00d3bitos por mil habitantes",
+    "obitos_por_causas_evitaveis_por_mil_habitantes": "\u00d3bitos por mil habitantes",
+    "medicos_por_mil_habitantes": "M\u00e9dicos por mil habitantes",
+    "taxa_cobertura_creche": "Cobertura (%)",
+    "taxa_distorcao_fundamental": "Taxa (%)",
+    "adequacao_formacao_docente": "Docentes com forma\u00e7\u00e3o adequada (%)",
+    "qt_acesso_infor": "Acesso \u00e0 informa\u00e7\u00e3o (%)",
+    "proporcao_atendimento_agua": "Atendimento (%)",
+    "prop_atendimento_agua": "Atendimento (%)",
+    "proporcao_coleta_residuos": "Coleta de res\u00edduos (%)",
+    "prop_coleta_residuos": "Coleta de res\u00edduos (%)",
+    "indice_perdas_distribuicao": "Perdas na distribui\u00e7\u00e3o (%)",
+    "proporcao_pessoas_baixa_renda": "Popula\u00e7\u00e3o (%)",
+    "formalidade_mercado_trabalho": "Formalidade (%)",
+    "vinculos_per_capita": "V\u00ednculos por habitante",
+    "vinculos_ativos_per_capita": "V\u00ednculos por habitante",
+    "geracao_emprego_per_capita": "Gera\u00e7\u00e3o de emprego per capita",
+    "renda_media": "Renda m\u00e9dia",
+    "pib_per_capita": "PIB per capita",
+    "roubos_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "roubos_por_10mil_hab": "Ocorr\u00eancias por 10 mil habitantes",
+    "furtos_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "furtos_por_10mil_hab": "Ocorr\u00eancias por 10 mil habitantes",
+    "armas_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "delitos_com_armas_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "homicidios_dolosos_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "ameacas_por_10_mil_mulheres": "Ocorr\u00eancias por 10 mil mulheres",
+    "estupros_por_10_mil_mulheres": "Ocorr\u00eancias por 10 mil mulheres",
+    "roubos_e_furtos_de_veiculos_por_10_mil_veiculos": "Ocorr\u00eancias por 10 mil ve\u00edculos",
 }
 
 INDICATOR_DIRECTION_MAP = {
@@ -463,15 +519,27 @@ def _indicator_direction_class(direction: str) -> str:
     return "is-unknown"
 
 
+def _indicator_multiplier(indicator: str | None):
+    raw_key = str(indicator or "").strip()
+    normalized_key = _indicator_key(indicator)
+    if raw_key in PERCENT_INDICATOR_MULTIPLIERS:
+        return PERCENT_INDICATOR_MULTIPLIERS[raw_key]
+    return PERCENT_INDICATOR_MULTIPLIERS.get(normalized_key)
+
+
 def _is_percent_indicator(indicator: str | None) -> bool:
-    return str(indicator or "").strip() in PERCENT_INDICATOR_MULTIPLIERS
+    return _indicator_multiplier(indicator) is not None
+
+
+def _indicator_axis_title(indicator: str | None) -> str:
+    return INDICATOR_AXIS_LABELS.get(_indicator_key(indicator), "Valor do indicador")
 
 
 def _indicator_observed_display_value(value, indicator: str | None):
     if value is None or pd.isna(value):
         return None
     numeric_value = float(value)
-    multiplier = PERCENT_INDICATOR_MULTIPLIERS.get(str(indicator or "").strip())
+    multiplier = _indicator_multiplier(indicator)
     if multiplier is None:
         return numeric_value
     return numeric_value * multiplier
@@ -1019,11 +1087,11 @@ def _build_region_overview(year):
                     html.Div(
                         [
                             html.H1(
-                                "Selecione uma regi\u00e3o funcional",
+                                "Selecione uma regi\u00e3o funcional ou um munic\u00edpio",
                                 className="regional-title",
                             ),
                             html.P(
-                                "Escolha uma regi\u00e3o funcional no filtro acima para abrir o ranking dos munic\u00edpios, os indicadores regionais e os detalhes por munic\u00edpio.",
+                                "Escolha uma regi\u00e3o funcional para explorar o ranking regional ou selecione diretamente um munic\u00edpio no filtro acima para abrir seus detalhes.",
                                 className="regional-subtitle",
                             ),
                         ],
@@ -1141,7 +1209,7 @@ def _build_region_overview(year):
                                 _icon("info-circle", 18), className="summary-note-icon"
                             ),
                             html.Div(
-                                "Selecione uma região para explorar o ranking dos municípios e os detalhes regionais."
+                                "Selecione uma regi\u00e3o funcional ou um munic\u00edpio para explorar rankings, indicadores e detalhes."
                             ),
                         ],
                         className="summary-note region-explore-note",
@@ -1226,9 +1294,9 @@ def _region_municipalities_table_data(
     previous_year = _previous_year(year, ranking)
 
     if summary.empty:
-        frame = ranking[
-            (ranking["ano"] == int(year)) & (ranking["regiao_funcional"] == region)
-        ].copy()
+        frame = ranking[ranking["ano"] == int(year)].copy()
+        if region:
+            frame = frame[frame["regiao_funcional"] == region]
         if corede:
             frame = frame[frame["corede"] == corede]
     else:
@@ -1274,7 +1342,7 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
     if year is None:
         return _empty_state("Sem dados de munic\u00edpios para listar.")
 
-    if not region:
+    if not region and not corede:
         ranking = _safe_ranking_data()
         if ranking.empty:
             return _empty_state("Sem dados de munic\u00edpios para listar.")
@@ -1288,7 +1356,8 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
     if not records:
         return _empty_state("N\u00e3o h\u00e1 munic\u00edpios no recorte selecionado.")
 
-    _prefetch_municipio_detail_data(year, region, CATEGORY_DEFAULT, previous_year)
+    if region:
+        _prefetch_municipio_detail_data(year, region, CATEGORY_DEFAULT, previous_year)
 
     header_cells = [
         html.Th("Geral"),
@@ -1422,10 +1491,33 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
         for row in records
     ]
 
-    subtitle = (
-        f"{len(records)} munic\u00edpios em {region}"
-        if not corede
-        else f"{len(records)} munic\u00edpios em {region} - {corede}"
+    record_regions = sorted(
+        {
+            str(row.get("regiao_funcional")).strip()
+            for row in records
+            if row.get("regiao_funcional") is not None
+            and not pd.isna(row.get("regiao_funcional"))
+            and str(row.get("regiao_funcional")).strip()
+        },
+        key=_region_sort_value,
+    )
+    region_label = ", ".join(record_regions)
+
+    if region and corede:
+        subtitle = f"{len(records)} munic\u00edpios em {region} - {corede}"
+    elif region:
+        subtitle = f"{len(records)} munic\u00edpios em {region}"
+    elif corede and region_label:
+        subtitle = f"{len(records)} munic\u00edpios no Corede {corede} - {region_label}"
+    elif corede:
+        subtitle = f"{len(records)} munic\u00edpios no Corede {corede}"
+    else:
+        subtitle = f"{len(records)} munic\u00edpios"
+
+    table_title = (
+        "Munic\u00edpios da regi\u00e3o"
+        if region or region_label
+        else "Munic\u00edpios do recorte"
     )
     return html.Div(
         [
@@ -1434,7 +1526,7 @@ def _region_municipalities_table(year, region: str | None, corede: str | None):
                     html.Div(
                         [
                             _icon("list-ol", 18),
-                            html.Span("Munic\u00edpios da regi\u00e3o"),
+                            html.Span(table_title),
                         ],
                         className="chart-title",
                     ),
@@ -2462,7 +2554,7 @@ def _indicator_history_figure(
                 "<b>%{x}</b><br>"
                 "Posi\u00e7\u00e3o no indicador: %{text}<br>"
                 "Posi\u00e7\u00e3o original: %{customdata[2]}<br>"
-                "Valor Observado: %{customdata[0]}<br>"
+                "Valor do indicador: %{customdata[0]}<br>"
                 "Nota: %{customdata[1]}<extra></extra>"
             ),
         )
@@ -2502,7 +2594,7 @@ def _indicator_value_history_figure(
         for value in history["valor_original"]
     ]
     is_percent = _is_percent_indicator(indicator)
-    y_axis_title = "Valor Observado (%)" if is_percent else "Valor Observado"
+    y_axis_title = _indicator_axis_title(indicator)
     _perf_elapsed("indicator_value.load_and_format", _t_entry)
     regional_median_series = None
     median_source = "none"
@@ -2691,7 +2783,7 @@ def _indicator_value_history_figure(
             cliponaxis=False,
             showlegend=has_regional_median,
             hovertemplate=(
-                "<b>%{x}</b><br>Valor Observado: %{customdata}<extra></extra>"
+                "<b>%{x}</b><br>Valor do indicador: %{customdata}<extra></extra>"
             ),
         )
     )
@@ -2990,7 +3082,7 @@ layout = html.Div(
                         html.Div(
                             [
                                 html.Div(
-                                    "Valor Observado do indicador no tempo",
+                                    "Evolu\u00e7\u00e3o do indicador",
                                     id="municipio-info-indicator-value-title",
                                     className="chart-title",
                                 ),
@@ -3035,8 +3127,10 @@ layout = html.Div(
     prevent_initial_call=True,
 )
 def apply_municipio_query_params(search, pathname):
-    if pathname != "/municipios" or not search:
+    if pathname != "/municipios":
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    if not search:
+        return dash.no_update, None, None, None
 
     params = parse_qs(search.lstrip("?"), keep_blank_values=True)
 
@@ -3080,6 +3174,63 @@ def select_region_from_summary(_clicks):
     if isinstance(triggered, dict):
         return triggered.get("region")
     return dash.no_update
+
+
+@callback(
+    Output("app-location", "search", allow_duplicate=True),
+    Input("clear-filters", "n_clicks"),
+    State("app-location", "pathname"),
+    prevent_initial_call=True,
+)
+def clear_municipio_query_params(n_clicks, pathname):
+    if pathname != "/municipios" or not n_clicks:
+        return dash.no_update
+    return ""
+
+
+@callback(
+    Output("app-location", "search", allow_duplicate=True),
+    Input("filter-corede", "value"),
+    Input("filter-municipio", "value"),
+    State("filter-ano", "value"),
+    State("filter-regiao", "value"),
+    State("app-location", "pathname"),
+    State("app-location", "search"),
+    prevent_initial_call=True,
+)
+def sync_direct_municipio_selection_url(
+    corede, municipio, year, region, pathname, search
+):
+    if pathname != "/municipios" or year is None or (not corede and not municipio):
+        return dash.no_update
+
+    ranking = _safe_ranking_data()
+    params = {
+        "ano": year,
+    }
+
+    if municipio:
+        selected_row, resolved_region = _selected_context(
+            year, region, municipio, ranking
+        )
+        if selected_row is None or not resolved_region:
+            return dash.no_update
+
+        resolved_corede = corede
+        if "corede" in selected_row and not pd.isna(selected_row.get("corede")):
+            resolved_corede = str(selected_row.get("corede")).strip() or None
+
+        params["regiao"] = resolved_region
+        if resolved_corede:
+            params["corede"] = resolved_corede
+        params["municipio"] = str(selected_row["municipio"])
+    else:
+        if region:
+            params["regiao"] = region
+        params["corede"] = str(corede)
+
+    next_search = f"?{urlencode(params)}"
+    return dash.no_update if next_search == (search or "") else next_search
 
 
 @callback(
@@ -3214,7 +3365,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             "Hist\u00f3rico de posi\u00e7\u00e3o",
             "Notas da dimens\u00e3o",
             "Hist\u00f3rico de posi\u00e7\u00e3o no indicador",
-            "Valor Observado do indicador no tempo",
+            "Evolu\u00e7\u00e3o do indicador",
             "",
             "indicator-direction-subtitle is-hidden",
             empty_figure,
@@ -3396,7 +3547,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         )
         _perf_elapsed("figure.general_dimension_radar_figure", _t_figure)
         indicator_history_title = "Hist\u00f3rico de posi\u00e7\u00e3o no indicador"
-        indicator_value_title = "Valor Observado do indicador no tempo"
+        indicator_value_title = "Evolu\u00e7\u00e3o do indicador"
         indicator_value_subtitle = ""
         indicator_value_subtitle_class = "indicator-direction-subtitle is-hidden"
         indicator_history_figure = _empty_figure(
@@ -3442,7 +3593,7 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         indicator_history_title = (
             f"Hist\u00f3rico de posi\u00e7\u00e3o - {indicator_label}"
         )
-        indicator_value_title = f"Valor Observado - {indicator_label}"
+        indicator_value_title = f"Evolu\u00e7\u00e3o do indicador - {indicator_label}"
         indicator_value_subtitle = indicator_direction_subtitle
         indicator_value_subtitle_class = indicator_direction_subtitle_class
         _t_figure = time.perf_counter()

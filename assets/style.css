@@ -3831,6 +3831,7 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
 .municipio-info-region-table-scroll {
   max-height: clamp(500px, calc(100vh - 330px), 640px);
   overflow: auto;
+  position: relative;
   border: 1px solid #dfe6ec;
   border-radius: 8px;
 }
@@ -3839,14 +3840,21 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   min-width: 1120px;
   border: 0;
   border-radius: 0;
+  overflow: visible;
+}
+
+.municipio-info-region-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 8;
 }
 
 .municipio-info-region-table thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 9;
   background: #ffffff;
-  box-shadow: 0 1px 0 #dfe6ec;
+  box-shadow: 0 1px 0 #dfe6ec, 0 4px 8px rgba(16, 37, 66, 0.06);
 }
 
 .municipio-info-region-table th,

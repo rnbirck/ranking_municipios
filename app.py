@@ -81,14 +81,14 @@ def _region_options_from_frame(frame) -> list[str]:
 
 def _corede_options_from_frame(frame, region: str | None) -> list[str]:
     if (
-        not region
-        or frame is None
+        frame is None
         or frame.empty
         or "corede" not in frame.columns
-        or "regiao_funcional" not in frame.columns
     ):
         return []
-    scoped = frame[frame["regiao_funcional"] == region]
+    scoped = frame
+    if region and "regiao_funcional" in scoped.columns:
+        scoped = scoped[scoped["regiao_funcional"] == region]
     return sorted(scoped["corede"].replace("", None).dropna().astype(str).unique())
 
 
@@ -182,7 +182,9 @@ def _resolve_filter_state(
     if triggered == "clear-filters":
         return None, None, None
 
-    if triggered in (None, "app-location", "filter-ano") and query_region:
+    if triggered in (None, "app-location", "filter-ano") and (
+        query_region or query_corede or query_municipio
+    ):
         selected_region = query_region
         selected_corede = query_corede
         current_municipio = query_municipio
@@ -191,16 +193,13 @@ def _resolve_filter_state(
     coredes_for_region = _corede_options_from_frame(year_frame, region)
     corede = selected_corede if selected_corede in coredes_for_region else None
     municipios_for_scope = (
-        _municipio_names_from_frame(year_frame)
+        _municipio_names_from_frame(year_frame, None, corede)
         if is_municipios_page and not region
         else _municipio_names_from_frame(year_frame, region, corede)
     )
     municipio = (
         current_municipio if current_municipio in municipios_for_scope else None
     )
-    if is_municipios_page and not region:
-        municipio = None
-
     return region, corede, municipio
 
 
@@ -401,7 +400,7 @@ def update_filter_options(
 
     coredes = _corede_options_from_frame(year_frame, region)
     municipalities = (
-        _municipio_names_from_frame(year_frame)
+        _municipio_names_from_frame(year_frame, None, corede)
         if is_municipios_page and not region
         else _municipio_names_from_frame(year_frame, region, corede)
     )
@@ -429,7 +428,7 @@ def update_filter_options(
 def update_shell_for_route(pathname, selected_region):
     if pathname == "/":
         return {"display": "none"}, "filters", "content-shell", "Município"
-    if pathname in ("/ranking-regional", "/municipios") and not selected_region:
+    if pathname == "/ranking-regional" and not selected_region:
         return {}, "filters filters-overview", "content-shell has-filters", "Município"
     return {}, "filters", "content-shell has-filters", "Município"
 
