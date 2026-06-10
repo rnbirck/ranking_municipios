@@ -57,9 +57,7 @@ def _perf_start(label: str) -> float:
 
 def _perf_elapsed(label: str, start: float) -> None:
     if PERF_LOGS:
-        logger.debug(
-            "[PERF] %s: %.1f ms", label, (time.perf_counter() - start) * 1000
-        )
+        logger.debug("[PERF] %s: %.1f ms", label, (time.perf_counter() - start) * 1000)
 
 
 dash.register_page(__name__, path="/municipios", name="Munic\u00edpios")
@@ -229,7 +227,7 @@ INDICATOR_FALLBACK_LABELS = {
 }
 
 PERCENT_INDICATOR_MULTIPLIERS = {
-    "qt_acesso_infor": 1,
+    "qt_acesso_infor": 100,
     "formalidade_mercado_trabalho": 100,
     "proporcao_pessoas_baixa_renda": 1,
     "vulnerabilidade_social": 1,
@@ -2628,13 +2626,20 @@ def _indicator_value_history_figure(
                 history["ano"].map(mediana_por_ano).reset_index(drop=True)
             )
             median_source = "regional_medians"
-    regional_years = sorted(mediana_por_ano.index.astype(int).tolist()) if mediana_por_ano is not None and not mediana_por_ano.empty else []
-    nan_after_step1 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
+    regional_years = (
+        sorted(mediana_por_ano.index.astype(int).tolist())
+        if mediana_por_ano is not None and not mediana_por_ano.empty
+        else []
+    )
+    nan_after_step1 = (
+        int(pd.Series(regional_median_series).isna().sum())
+        if regional_median_series is not None
+        else len(history_years)
+    )
     _perf_elapsed("indicator_value.use_regional_medians", _t_medians)
 
     needs_specific = (
-        regional_median_series is None
-        or pd.Series(regional_median_series).isna().any()
+        regional_median_series is None or pd.Series(regional_median_series).isna().any()
     )
     specific_por_ano = None
     specific_years = []
@@ -2674,7 +2679,11 @@ def _indicator_value_history_figure(
                     )
                     median_source = "regional_medians+specific_indicator_medians"
                 specific_years = sorted(specific_por_ano.index.astype(int).tolist())
-        nan_after_step2 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
+        nan_after_step2 = (
+            int(pd.Series(regional_median_series).isna().sum())
+            if regional_median_series is not None
+            else len(history_years)
+        )
         _perf_elapsed("indicator_value.specific_indicator_medians", _t_specific)
 
     needs_history_patch = (
@@ -2689,12 +2698,14 @@ def _indicator_value_history_figure(
             .dropna(subset=["mediana_valor_original_regiao"])
             .set_index("ano")["mediana_valor_original_regiao"]
         )
-        fill_values = (
-            history["ano"].map(history_median_map).reset_index(drop=True)
-        )
+        fill_values = history["ano"].map(history_median_map).reset_index(drop=True)
         regional_median_series = regional_median_series.fillna(fill_values)
         median_source += "+history_column"
-    nan_after_step3 = int(pd.Series(regional_median_series).isna().sum()) if regional_median_series is not None else len(history_years)
+    nan_after_step3 = (
+        int(pd.Series(regional_median_series).isna().sum())
+        if regional_median_series is not None
+        else len(history_years)
+    )
 
     has_any_median = (
         regional_median_series is not None
@@ -2740,11 +2751,18 @@ def _indicator_value_history_figure(
 
     logger.debug(
         "[PERF] indicator_value.median_coverage: history_years=%s regional_years=%s specific_years=%s missing_after_all=%s",
-        history_years, regional_years, specific_years if needs_specific else [], missing_after_all,
+        history_years,
+        regional_years,
+        specific_years if needs_specific else [],
+        missing_after_all,
     )
     logger.debug(
         "[PERF] indicator_value.nan_count: total_years=%d after_regional=%d after_specific=%d after_history_patch=%d after_all=%d",
-        len(history_years), nan_after_step1, nan_after_step2, nan_after_step3, len(missing_after_all),
+        len(history_years),
+        nan_after_step1,
+        nan_after_step2,
+        nan_after_step3,
+        len(missing_after_all),
     )
     logger.debug("[PERF] indicator_value.median_source: %s", median_source)
     _perf_elapsed("indicator_value.resolve_medians", _t_medians)
@@ -3253,9 +3271,7 @@ def update_indicator_options(year, region, municipio, category, current_indicato
 
     category = category if category in CATEGORY_LABELS else CATEGORY_DEFAULT
     ranking = _safe_ranking_data() if year is not None and municipio else None
-    selected_row, resolved_region = _selected_context(
-        year, region, municipio, ranking
-    )
+    selected_row, resolved_region = _selected_context(year, region, municipio, ranking)
     if selected_row is None:
         _perf_elapsed("update_indicator_options (no context)", _t0)
         return [], None, [], None, {"display": "none"}
@@ -3318,7 +3334,9 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
     _t0 = time.perf_counter()
     _perf_labels.clear()
     _t1 = time.perf_counter()
-    ranking_for_context = _safe_ranking_data() if year is not None and municipio else None
+    ranking_for_context = (
+        _safe_ranking_data() if year is not None and municipio else None
+    )
     selected_row, resolved_region = _selected_context(
         year, region, municipio, ranking_for_context
     )
@@ -3339,7 +3357,9 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         _te = time.perf_counter()
         logger.debug(
             "[PERF] update_municipio_info (no selection): %.1f ms | sel_context=%.1f ms | region_table=%.1f ms",
-            (_te - _t0) * 1000, (_t1a - _t1) * 1000, (_te - _t1a) * 1000,
+            (_te - _t0) * 1000,
+            (_t1a - _t1) * 1000,
+            (_te - _t1a) * 1000,
         )
         return (
             html.Div(
@@ -3379,7 +3399,9 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
     is_general_category = category == GENERAL_CATEGORY
 
     _t_data = time.perf_counter()
-    ranking = ranking_for_context if ranking_for_context is not None else _safe_ranking_data()
+    ranking = (
+        ranking_for_context if ranking_for_context is not None else _safe_ranking_data()
+    )
     previous_year = _previous_year(year, ranking)
     current_positions = _safe_category_positions(year, resolved_region, None)
     total_municipios = (
@@ -3632,8 +3654,11 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         " | context=%.1f"
         " | figures=%.1f"
         " | cards=%.1f",
-        (_te - _t0) * 1000, (_t1a - _t1) * 1000, (_t_context - _t_data) * 1000,
-        (_t_context_done - _t_context) * 1000, (_t_figures_done - _t_context_done) * 1000,
+        (_te - _t0) * 1000,
+        (_t1a - _t1) * 1000,
+        (_t_context - _t_data) * 1000,
+        (_t_context_done - _t_context) * 1000,
+        (_t_figures_done - _t_context_done) * 1000,
         (_t_cards_done - _t_figures_done) * 1000,
     )
     return (
