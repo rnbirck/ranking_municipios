@@ -227,7 +227,7 @@ INDICATOR_FALLBACK_LABELS = {
 }
 
 PERCENT_INDICATOR_MULTIPLIERS = {
-    "qt_acesso_infor": 100,
+    "qt_acesso_infor": 1,
     "formalidade_mercado_trabalho": 100,
     "proporcao_pessoas_baixa_renda": 1,
     "vulnerabilidade_social": 1,
@@ -247,6 +247,8 @@ PERCENT_INDICATOR_MULTIPLIERS = {
     "proporcao_coleta_residuos": 1,
     "prop_coleta_residuos": 1,
     "indice_perdas_distribuicao": 1,
+    "desmatamento_area": 1,
+    "desmatamento_por_area": 1,
 }
 
 INDICATOR_AXIS_LABELS = {
@@ -270,7 +272,15 @@ INDICATOR_AXIS_LABELS = {
     "proporcao_coleta_residuos": "Coleta de res\u00edduos (%)",
     "prop_coleta_residuos": "Coleta de res\u00edduos (%)",
     "indice_perdas_distribuicao": "Perdas na distribui\u00e7\u00e3o (%)",
+    "desmatamento_area": "(%) \u00c1rea desmatada",
+    "desmatamento_por_area": "(%) \u00c1rea desmatada",
+    "emissao_gases_per_capita": "MtCO2",
+    "emissao_de_gases_per_capita": "MtCO2",
     "proporcao_pessoas_baixa_renda": "Popula\u00e7\u00e3o (%)",
+    "vulnerabilidade_social": "(%) da popula\u00e7\u00e3o",
+    "mulheres_empregadas_com_no_minimo_ensino_medio_por_1000_mulheres": "Por mil mulheres",
+    "mulheres_empregadas_com_no_minimo_ensino_medio_por_1_000_mulheres": "Por mil mulheres",
+    "mulheres_empregadas_ensino_medio_ou_mais_por_1000_mulheres": "Por mil mulheres",
     "formalidade_mercado_trabalho": "Formalidade (%)",
     "vinculos_per_capita": "V\u00ednculos por habitante",
     "vinculos_ativos_per_capita": "V\u00ednculos por habitante",
@@ -283,10 +293,17 @@ INDICATOR_AXIS_LABELS = {
     "furtos_por_10mil_hab": "Ocorr\u00eancias por 10 mil habitantes",
     "armas_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
     "delitos_com_armas_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "delitos_armas_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "delitos_com_armas_por_10mil_hab": "Ocorr\u00eancias por 10 mil habitantes",
     "homicidios_dolosos_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
+    "homicidio_doloso_por_10mil_hab": "Ocorr\u00eancias por 10 mil habitantes",
     "ameacas_por_10_mil_mulheres": "Ocorr\u00eancias por 10 mil mulheres",
+    "ameaca_por_10mil_mulheres": "Ocorr\u00eancias por 10 mil mulheres",
     "estupros_por_10_mil_mulheres": "Ocorr\u00eancias por 10 mil mulheres",
+    "estupro_por_10mil_mulheres": "Ocorr\u00eancias por 10 mil mulheres",
     "roubos_e_furtos_de_veiculos_por_10_mil_veiculos": "Ocorr\u00eancias por 10 mil ve\u00edculos",
+    "roubos_furtos_veiculos_10_mil_veiculos": "Ocorr\u00eancias por 10 mil ve\u00edculos",
+    "roubos_furtos_veiculos_por_10mil_veiculos": "Ocorr\u00eancias por 10 mil ve\u00edculos",
 }
 
 INDICATOR_DIRECTION_MAP = {
