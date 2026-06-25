@@ -224,6 +224,8 @@ INDICATOR_FALLBACK_LABELS = {
     "taxa_distorcao_fundamental": "Taxa de Distor\u00e7\u00e3o Idade-S\u00e9rie - Ensino Fundamental",
     "proporcao_consultas_pre_natal": "Propor\u00e7\u00e3o de nascidos vivos de m\u00e3es com 7 ou mais consultas de pr\u00e9-natal",
     "proporcao_de_gravidas_com_pelo_menos_7_consultas_pre_natal": "Propor\u00e7\u00e3o de nascidos vivos de m\u00e3es com 7 ou mais consultas de pr\u00e9-natal",
+    "geracao_emprego_per_capita": "Gera\u00e7\u00e3o de empregos por 1.000 habitantes",
+    "geracao_de_emprego_per_capita": "Gera\u00e7\u00e3o de empregos por 1.000 habitantes",
 }
 
 PERCENT_INDICATOR_MULTIPLIERS = {
@@ -250,6 +252,15 @@ PERCENT_INDICATOR_MULTIPLIERS = {
     "desmatamento_area": 1,
     "desmatamento_por_area": 1,
 }
+
+SCALE_MULTIPLIERS = {
+    "geracao_emprego_per_capita": 1000,
+}
+
+MONETARY_INDICATORS = frozenset({
+    "pib_per_capita",
+    "renda_media",
+})
 
 INDICATOR_AXIS_LABELS = {
     "proporcao_gravidez_adolescencia": "Nascidos vivos (%)",
@@ -284,7 +295,7 @@ INDICATOR_AXIS_LABELS = {
     "formalidade_mercado_trabalho": "Formalidade (%)",
     "vinculos_per_capita": "V\u00ednculos por habitante",
     "vinculos_ativos_per_capita": "V\u00ednculos por habitante",
-    "geracao_emprego_per_capita": "Gera\u00e7\u00e3o de emprego per capita",
+    "geracao_emprego_per_capita": "Empregos gerados por 1.000 habitantes",
     "renda_media": "Renda m\u00e9dia",
     "pib_per_capita": "PIB per capita",
     "roubos_por_10_mil_habitantes": "Ocorr\u00eancias por 10 mil habitantes",
@@ -555,9 +566,12 @@ def _indicator_observed_display_value(value, indicator: str | None):
         return None
     numeric_value = float(value)
     multiplier = _indicator_multiplier(indicator)
-    if multiplier is None:
-        return numeric_value
-    return numeric_value * multiplier
+    if multiplier is not None:
+        return numeric_value * multiplier
+    key = _indicator_key(indicator)
+    if key in SCALE_MULTIPLIERS:
+        return numeric_value * SCALE_MULTIPLIERS[key]
+    return numeric_value
 
 
 def _fmt_indicator_observed_value(value, indicator: str | None) -> str:
@@ -566,6 +580,17 @@ def _fmt_indicator_observed_value(value, indicator: str | None) -> str:
         return "-"
     suffix = "%" if _is_percent_indicator(indicator) else ""
     return f"{_fmt_num(display_value)}{suffix}"
+
+
+def _is_monetary_indicator(indicator: str | None) -> bool:
+    return _indicator_key(indicator) in MONETARY_INDICATORS
+
+
+def _fmt_indicator_display_value(value, indicator: str | None) -> str:
+    base = _fmt_indicator_observed_value(value, indicator)
+    if _is_monetary_indicator(indicator):
+        return f"R$ {base}"
+    return base
 
 
 RADAR_LABELS = {
@@ -587,6 +612,7 @@ RADAR_LABELS = {
     "saeb ensino fundamental": "SAEB<br>fundamental",
     "taxa cobertura creche": "Cobertura<br>creche",
     "taxa distorcao fundamental": "Distor\u00e7\u00e3o<br>fundamental",
+    "geracao emprego per capita": "Empregos<br>por 1.000 hab.",
 }
 
 
@@ -2605,10 +2631,11 @@ def _indicator_value_history_figure(
         for value in history["valor_original"]
     ]
     formatted_values = [
-        _fmt_indicator_observed_value(value, indicator)
+        _fmt_indicator_display_value(value, indicator)
         for value in history["valor_original"]
     ]
     is_percent = _is_percent_indicator(indicator)
+    is_monetary = _is_monetary_indicator(indicator)
     y_axis_title = _indicator_axis_title(indicator)
     _perf_elapsed("indicator_value.load_and_format", _t_entry)
     regional_median_series = None
@@ -2799,7 +2826,7 @@ def _indicator_value_history_figure(
             for value in regional_median_series
         ]
         formatted_regional_median_values = [
-            _fmt_indicator_observed_value(value, indicator)
+            _fmt_indicator_display_value(value, indicator)
             for value in regional_median_series
         ]
 
@@ -2854,6 +2881,7 @@ def _indicator_value_history_figure(
             fixedrange=True,
             tickfont=dict(size=9),
             ticksuffix="%" if is_percent else "",
+            tickprefix="R$ " if is_monetary else "",
             automargin=True,
         ),
         hoverlabel=dict(
