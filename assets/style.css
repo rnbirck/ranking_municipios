@@ -4622,6 +4622,18 @@ body:has(.municipio-info-page) .filters:not(.filters-overview) .clear-button {
   min-width: 0;
 }
 
+.indicator-methodology-subtitle {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    color: #526277;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.indicator-methodology-subtitle.is-hidden {
+    display: none;
+}
+
 .indicator-direction-subtitle {
   display: inline-flex;
   align-items: center;

@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import ALL, Input, Output, State, callback, ctx, dcc, html
 
+from src.indicator_metadata import get_indicator_methodology
 from src.data_loader import (
     filter_ranking_data,
     get_category_labels,
@@ -3150,6 +3151,10 @@ layout = html.Div(
                                     className="chart-title",
                                 ),
                                 html.Div(
+                                    id="municipio-info-indicator-methodology-subtitle",
+                                    className="indicator-methodology-subtitle is-hidden",
+                                ),
+                                html.Div(
                                     id="municipio-info-indicator-value-subtitle",
                                     className="indicator-direction-subtitle is-hidden",
                                 ),
@@ -3362,6 +3367,8 @@ def update_indicator_options(year, region, municipio, category, current_indicato
     Output("municipio-info-category-radar-title", "children"),
     Output("municipio-info-indicator-history-title", "children"),
     Output("municipio-info-indicator-value-title", "children"),
+    Output("municipio-info-indicator-methodology-subtitle", "children"),
+    Output("municipio-info-indicator-methodology-subtitle", "className"),
     Output("municipio-info-indicator-value-subtitle", "children"),
     Output("municipio-info-indicator-value-subtitle", "className"),
     Output("municipio-info-category-history", "figure"),
@@ -3431,6 +3438,8 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             "Notas da dimens\u00e3o",
             "Hist\u00f3rico de posi\u00e7\u00e3o no indicador",
             "Evolu\u00e7\u00e3o do indicador",
+            "",
+            "indicator-methodology-subtitle is-hidden",
             "",
             "indicator-direction-subtitle is-hidden",
             empty_figure,
@@ -3615,6 +3624,8 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         _perf_elapsed("figure.general_dimension_radar_figure", _t_figure)
         indicator_history_title = "Hist\u00f3rico de posi\u00e7\u00e3o no indicador"
         indicator_value_title = "Evolu\u00e7\u00e3o do indicador"
+        indicator_methodology_text = ""
+        indicator_methodology_class = "indicator-methodology-subtitle is-hidden"
         indicator_value_subtitle = ""
         indicator_value_subtitle_class = "indicator-direction-subtitle is-hidden"
         indicator_history_figure = _empty_figure(
@@ -3661,6 +3672,12 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
             f"Hist\u00f3rico de posi\u00e7\u00e3o - {indicator_label}"
         )
         indicator_value_title = f"Evolu\u00e7\u00e3o do indicador - {indicator_label}"
+        indicator_methodology_text = get_indicator_methodology(indicator)
+        if indicator_methodology_text:
+            indicator_methodology_class = "indicator-methodology-subtitle"
+        else:
+            indicator_methodology_text = ""
+            indicator_methodology_class = "indicator-methodology-subtitle is-hidden"
         indicator_value_subtitle = indicator_direction_subtitle
         indicator_value_subtitle_class = indicator_direction_subtitle_class
         _t_figure = time.perf_counter()
@@ -3728,6 +3745,8 @@ def update_municipio_info(year, region, corede, municipio, category, indicator):
         category_radar_title,
         indicator_history_title,
         indicator_value_title,
+        indicator_methodology_text,
+        indicator_methodology_class,
         indicator_value_subtitle,
         indicator_value_subtitle_class,
         category_history_figure,

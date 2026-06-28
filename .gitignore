@@ -10,5 +10,8 @@ __pycache__/
 src/data/cache/
 *.log
 log_erros.txt
+perf_log.txt
+perf_err.txt
+medianas_regioes.xlsx
 .DS_Store
 .vscode/
